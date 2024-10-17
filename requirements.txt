@@ -1,0 +1,7 @@
+openai
+django
+pymongo==3.12.0
+djongo
+pytz
+six
+django-utils-six

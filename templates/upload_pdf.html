@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Upload and Q&A</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h2 {
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="file"], input[type="text"], button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        .answer {
+            margin-top: 20px;
+            padding: 10px;
+            background: #e9ecef;
+            border-left: 5px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Upload PDF and Ask a Question</h2>
+
+    <!-- Form to upload PDF -->
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="pdf_file">Select PDF File:</label>
+            <input type="file" name="pdf_file" required>
+        </div>
+        <button type="submit">Upload PDF</button>
+    </form>
+
+    <hr>
+
+    <!-- Form to ask a question about the uploaded PDF -->
+    <form method="POST">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="uploaded_file">Select Uploaded File:</label>
+            <select name="uploaded_file" required>
+                <option value="">-- Select a PDF --</option>
+                {% for file in uploaded_files %}
+                    <option value="{{ file.file_id }}">{{ file.file_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="question">Your Question:</label>
+            <input type="text" name="question" placeholder="Type your question here..." required>
+        </div>
+        <button type="submit">Ask Question</button>
+    </form>
+
+    {% if answer %}
+        <div class="answer">
+            <strong>Answer:</strong> {{ answer }}
+        </div>
+    {% endif %}
+</div>
+
+</body>
+</html>
