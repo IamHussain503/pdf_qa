@@ -30,13 +30,14 @@ from django.contrib import admin
 from django.urls import path
 from home import views
 
-from django.urls import path
-from . import views
-
 urlpatterns = [
     path('admin/', admin.site.urls),  # Admin panel URL
-    path('api/upload_document/', views.UploadDocumentAPI.as_view(), name='upload_document'),  # API for document upload
-    path('api/retrieve_documents/', views.RetrieveDocumentAPI.as_view(), name='retrieve_documents'),  # API for retrieving documents
-    path('api/ask_question/', views.AskQuestionAPI.as_view(), name='ask_question_api'),  # API for asking questions
-]
+    path('upload_pdf/', views.upload_pdf_page, name='upload_pdf_page'),  # Handle PDF upload and questions
+    path('upload_pdf/upload/', views.upload_pdf_page, name='upload_pdf_upload'),  # Same function for uploading and processing
+    path('ask_question/', views.upload_pdf_page, name='ask_question'),  # Reusing the upload_pdf_page for asking questions
+    path('upload_pdf/<str:vector_store_id>/', views.upload_pdf_page, name='upload_pdf_page_with_id'),  # Handle uploads with vector_store_id
+    path('api/upload_document/', views.UploadDocumentAPI.as_view(), name='upload_document'),
+    path('api/retrieve_documents/', views.RetrieveDocumentAPI.as_view(), name='retrieve_documents'),
+    path('api/ask_question/', views.AskQuestionAPI.as_view(), name='ask_question_api'),
 
+]

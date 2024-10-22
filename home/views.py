@@ -1,4 +1,3 @@
-import os
 from django.shortcuts import render, redirect
 from django.core.files.storage import default_storage
 from .models import UploadedDocument
@@ -6,29 +5,18 @@ import openai
 from pymongo import MongoClient
 from openai import OpenAI, AssistantEventHandler
 from typing_extensions import override
+
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import JsonResponse
+from .models import UploadedDocument
+import openai
+
+
 import logging
-
 logger = logging.getLogger(__name__)
-
-# Load the OpenAI API key and MongoDB connection string from environment variables
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-MONGO_CONNECTION_STRING = os.getenv('MONGO_CONNECTION_STRING')
-
-if not OPENAI_API_KEY:
-    logger.error("OpenAI API key is not set. Please configure the environment variable 'OPENAI_API_KEY'.")
-
-if not MONGO_CONNECTION_STRING:
-    logger.error("MongoDB connection string is not set. Please configure the environment variable 'MONGO_CONNECTION_STRING'.")
-
-# Initialize the OpenAI client
-openai.api_key = OPENAI_API_KEY
-
-
-
 
 class UploadDocumentAPI(APIView):
     def post(self, request):
@@ -65,8 +53,8 @@ class UploadDocumentAPI(APIView):
 class RetrieveDocumentAPI(APIView):
     """API to retrieve file_name and vector_store_id for all uploaded documents."""
     def get(self, request):
-        # Connect to MongoDB directly using the environment variable
-        client = MongoClient(MONGO_CONNECTION_STRING)
+        # Connect to MongoDB directly
+        client = MongoClient("mongodb+srv://zaidali:IUzvdpQZ7MMaixB8@cluster0.qmehy3e.mongodb.net/Todo?retryWrites=true&w=majority")
         db = client.Todo
         collection = db['home_uploadeddocument']
         
@@ -91,14 +79,15 @@ class AskQuestionAPI(APIView):
         if not question or not vector_store_id:
             return Response({"error": "Both 'question' and 'vector_store_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Append the specified string to the question
-        question_with_note = f"{question} Please do not send any relevant links with the answer, also remove unwanted characters from the text."
-
         # Get the answer from the vector store
-        answer = ask_question_with_file_search(question_with_note, vector_store_id)
+        answer = ask_question_with_file_search(question, vector_store_id)
         
-        return Response({"question": question_with_note, "answer": answer}, status=status.HTTP_200_OK)
+        return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
+
+
+# Initialize the OpenAI client
+#api key here
 
 # Define the event handler for streaming responses
 class EventHandler(AssistantEventHandler):
@@ -129,7 +118,76 @@ class EventHandler(AssistantEventHandler):
         print("\nMessage content (value only):", value)
 
 
+
+
+
+# Initialize the assistant
+assistant = openai_client.beta.assistants.create(
+    name="PDF File QA Assistant",
+    instructions="You are an assistant who answers questions based on the content of uploaded PDF files.",
+    model="gpt-4o",
+    tools=[{"type": "file_search"}]
+)
+
 # Function to handle the file upload and create the vector store
+from bson import ObjectId  # Add this import
+from pymongo import MongoClient
+
+from bson.objectid import ObjectId
+from pymongo import MongoClient
+
+from pymongo import MongoClient
+
+def upload_pdf_page(request):
+    client = MongoClient("mongodb+srv://zaidali:IUzvdpQZ7MMaixB8@cluster0.qmehy3e.mongodb.net/Todo?retryWrites=true&w=majority")
+    db = client.Todo
+    collection = db['home_uploadeddocument']
+
+    if request.method == 'POST':
+        if 'pdf_file' in request.FILES:
+            pdf_file = request.FILES['pdf_file']
+            file_name = pdf_file.name
+            vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
+
+            # Insert manually into MongoDB
+            document = {
+                "file_name": file_name,
+                "vector_store_id": vector_store.id
+            }
+            result = collection.insert_one(document)
+            print(f"Document inserted with ID: {result.inserted_id}")
+
+            return redirect('upload_pdf_page')
+        
+        # Other parts of the code
+
+        elif 'uploaded_file' in request.POST and 'question' in request.POST:
+            uploaded_file_id = request.POST['uploaded_file']
+            question = request.POST['question']
+
+            if uploaded_file_id:
+                try:
+                    uploaded_file = collection.find_one({"_id": ObjectId(uploaded_file_id)})
+
+                    if uploaded_file:
+                        answer = ask_question_with_file_search(question, uploaded_file['vector_store_id'])
+                    else:
+                        print("File not found in database.")
+                except Exception as e:
+                    print(f"Error retrieving file: {e}")
+            else:
+                print("No file selected.")
+
+    return render(request, 'upload_pdf.html', {
+        'uploaded_files': uploaded_files,
+        'answer': answer,
+        'question': question
+    })
+
+
+
+
+
 def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
     """Create a vector store and upload the file content."""
     # First, ensure we are working with a file-like object
