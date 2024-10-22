@@ -205,7 +205,6 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
 
     # Read the file as bytes and upload to OpenAI
     file_content = pdf_file.read()  # Read the file content as bytes
-    print(f"file_content: {file_content}")
 
     # Upload the file to OpenAI using its byte content
     file_batch = openai_client.beta.vector_stores.file_batches.upload_and_poll(
