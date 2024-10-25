@@ -11,56 +11,75 @@ from django.http import JsonResponse
 import logging
 
 logger = logging.getLogger(__name__)
-
-# Set up OpenAI API and MongoDB connection using environment variables
-openai.api_key = os.getenv("OPENAI_API_KEY")
 client = MongoClient(os.getenv("MONGODB_URL"))
+# Initialize the OpenAI client
+openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# MongoDB setup
+db = client.Todo
+collection = db['home_uploadeddocument']
 
 
+def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
+    """Create a vector store and upload the file content."""
+    vector_store = openai_client.beta.vector_stores.create(name=vector_store_name)
+    file_content = pdf_file.read()  # Read the file content as bytes
+
+    file_batch = openai_client.beta.vector_stores.file_batches.upload_and_poll(
+        vector_store_id=vector_store.id,
+        files=[(pdf_file.name, file_content)]
+    )
+
+    print(f"Vector store created with ID: {vector_store.id}")
+    print(f"File batch status: {file_batch.status}")
+
+    return vector_store
+
+
+def ask_question_with_file_search(question: str, vector_store_id: str):
+    """Ask a question using the vector store and get a streaming response."""
+    thread = openai_client.beta.threads.create(
+        messages=[{"role": "user", "content": question}],
+        tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
+    )
+
+    response_text = ""
+    for message in thread.messages:
+        response_text += message['content']['text']
+
+    return response_text
+
+
+# Views and API endpoints
 class UploadDocumentAPI(APIView):
+    """API to upload a PDF document and create a vector store."""
+
     def post(self, request):
-        logger.info("POST request received for document upload")
         if 'pdf_file' not in request.FILES:
-            logger.error("No file in request")
             return Response({"error": "No PDF file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
         pdf_file = request.FILES['pdf_file']
-        logger.info(f"Received file: {pdf_file.name}")
+        file_name = pdf_file.name
 
-        try:
-            # Create vector store (assuming a function is defined to handle this)
-            vector_store = upload_file_and_create_vector_store(pdf_file, pdf_file.name)
-            logger.info(f"Vector store created with ID: {vector_store.id}")
+        # Create vector store and upload content
+        vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
+        document = {"file_name": file_name, "vector_store_id": vector_store.id}
+        result = collection.insert_one(document)
 
-            # Save the document to MongoDB
-            document = UploadedDocument.objects.create(
-                file_name=pdf_file.name,
-                vector_store_id=vector_store.id
-            )
-            logger.info(f"Document {document.file_name} saved with vector_store_id {document.vector_store_id}")
-
-            return Response({
-                "file_name": document.file_name,
-                "vector_store_id": document.vector_store_id
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            logger.error(f"Error during document upload: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({
+            "file_name": file_name,
+            "vector_store_id": vector_store.id,
+            "document_id": str(result.inserted_id)
+        }, status=status.HTTP_201_CREATED)
 
 
 class RetrieveDocumentAPI(APIView):
     """API to retrieve file_name and vector_store_id for all uploaded documents."""
+
     def get(self, request):
-        db = client.Todo
-        collection = db['home_uploadeddocument']
-
-        # Fetch all documents from MongoDB
-        documents = list(collection.find({}, {'_id': 1, 'file_name': 1, 'vector_store_id': 1}))
-
-        # Prepare the response
+        documents = list(collection.find({}, {"file_name": 1, "vector_store_id": 1, "_id": 1}))
         documents_list = [
-            {"file_name": doc['file_name'], "vector_store_id": doc['vector_store_id']}
+            {"file_id": str(doc["_id"]), "file_name": doc["file_name"], "vector_store_id": doc["vector_store_id"]}
             for doc in documents
         ]
         return JsonResponse(documents_list, safe=False)
@@ -68,51 +87,50 @@ class RetrieveDocumentAPI(APIView):
 
 class AskQuestionAPI(APIView):
     """API to answer questions using the vector store."""
+
     def post(self, request):
-        question = request.data.get('question', None)
-        vector_store_id = request.data.get('vector_store_id', None)
+        question = request.data.get('question')
+        vector_store_id = request.data.get('vector_store_id')
 
         if not question or not vector_store_id:
             return Response({"error": "Both 'question' and 'vector_store_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get the answer from the vector store
         answer = ask_question_with_file_search(question, vector_store_id)
-        
+
         return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
 
-def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
-    """Create a vector store and upload the file content."""
-    if isinstance(pdf_file, str):
-        raise ValueError("Expected a file-like object, but got a string instead.")
+def upload_pdf_page(request):
+    """Frontend view to upload PDF and ask questions."""
+    uploaded_files = list(collection.find({}, {'_id': 1, 'file_name': 1}))
+    for file in uploaded_files:
+        file['file_id'] = str(file['_id'])  # Convert ObjectId to string for template use
 
-    vector_store = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "system", "content": "You are an assistant handling PDF uploads."}]
-    )
+    answer = None
+    question = None
 
-    try:
-        pdf_file.seek(0)
-    except AttributeError as e:
-        raise ValueError(f"pdf_file is not a file-like object: {e}")
+    if request.method == 'POST':
+        if 'pdf_file' in request.FILES:
+            pdf_file = request.FILES['pdf_file']
+            file_name = pdf_file.name
+            vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
 
-    file_content = pdf_file.read()  # Read the file content as bytes
-    vector_store.id = "example_id"  # Placeholder ID for the vector store
-    print(f"Vector store created with ID: {vector_store.id}")
+            document = {"file_name": file_name, "vector_store_id": vector_store.id}
+            collection.insert_one(document)
+            return redirect('upload_pdf_page')
 
-    return vector_store
+        elif 'uploaded_file' in request.POST and 'question' in request.POST:
+            uploaded_file_id = request.POST['uploaded_file']
+            question = request.POST['question']
+            try:
+                uploaded_file = collection.find_one({"_id": ObjectId(uploaded_file_id)})
+                if uploaded_file:
+                    answer = ask_question_with_file_search(question, uploaded_file['vector_store_id'])
+            except Exception as e:
+                print(f"Error retrieving file: {e}")
 
-
-def ask_question_with_file_search(question: str, vector_store_id: str):
-    """Ask a question using the vector store and get a response."""
-    
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are an assistant who answers questions based on PDF file content."},
-            {"role": "user", "content": question}
-        ]
-    )
-
-    answer = response['choices'][0]['message']['content']
-    return answer
+    return render(request, 'upload_pdf.html', {
+        'uploaded_files': uploaded_files,
+        'answer': answer,
+        'question': question
+    })
