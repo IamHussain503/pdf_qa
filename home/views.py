@@ -2,6 +2,7 @@ from django.shortcuts import render, redirect
 from django.core.files.storage import default_storage
 from .models import UploadedDocument
 import openai
+from openai import OpenAI, AssistantEventHandler
 import os
 from pymongo import MongoClient
 from rest_framework.views import APIView
@@ -18,6 +19,31 @@ openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # MongoDB setup
 db = client.Todo
 collection = db['home_uploadeddocument']
+
+class EventHandler(AssistantEventHandler):
+    def __init__(self):
+        super().__init__()  # Initialize the parent class
+        self.response = ""  # Initialize response attribute
+
+    def on_text_created(self, text) -> None:
+        # Append streamed text to the response
+        print(f"\nassistant > {text}", end="", flush=True)
+        self.response += str(text)
+
+    def on_tool_call_created(self, tool_call):
+        print(f"\nassistant > Tool call created: {tool_call.type}\n", flush=True)
+
+    def on_message_done(self, message) -> None:
+        # Extract the actual value field from the message content
+        message_content = message.content[0].text  # Get the message content
+        value = message_content.value  # Extract only the 'value' field
+
+        # Only append if the value is meaningful, avoid appending 'Text(...)' part
+        if value:
+            self.response += str(value)  # Append only the value part to response
+
+        print("\nMessage content (value only):", value)
+
 
 
 def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
