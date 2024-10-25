@@ -70,21 +70,29 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using the vector store and get a streaming response."""
     try:
-        # Concatenate the phrase with the question
-        question = f"{question} Please do not send any relevant links in the answer as well as remove any unwanted characters from answer."
+        # Modify the question with additional instructions to avoid links
+        question = (
+            f"{question} Please provide an answer that excludes any references, links, or citation markers such as 'health.pdf' "
+            "or any notation in brackets. Focus solely on providing an answer without external references."
+        )
 
+        # Create a thread with the modified question
         thread = openai_client.beta.threads.create(
             messages=[{"role": "user", "content": question}],
             tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
         )
 
+        # Use the event handler to stream the response
         event_handler = EventHandler()
+
         logger.info(f"Question '{question}' is being asked with vector store ID '{vector_store_id}'...")
 
+        # Run the OpenAI stream
         with openai_client.beta.threads.runs.stream(
             thread_id=thread.id,
             assistant_id=assistant.id,
-            instructions="Please address the user as Jane Doe. The user has a premium account.",
+            instructions="Provide an answer in clear language that is complete and free from external references, "
+                         "links, or any unnecessary symbols. Do not include phrases such as '[4:1†health.pdf]'.",
             event_handler=event_handler,
         ) as stream:
             stream.until_done()
@@ -94,6 +102,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
     except Exception as e:
         logger.error(f"Error during question processing: {e}")
         raise
+
 
 
 # API Views
