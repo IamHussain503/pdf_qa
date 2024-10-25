@@ -85,6 +85,14 @@ class RetrieveDocumentAPI(APIView):
         return JsonResponse(documents_list, safe=False)
 
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
 class AskQuestionAPI(APIView):
     """API to answer questions using the vector store."""
 
@@ -92,12 +100,20 @@ class AskQuestionAPI(APIView):
         question = request.data.get('question')
         vector_store_id = request.data.get('vector_store_id')
 
+        # Check if both question and vector_store_id are provided
         if not question or not vector_store_id:
             return Response({"error": "Both 'question' and 'vector_store_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        answer = ask_question_with_file_search(question, vector_store_id)
+        try:
+            # Attempt to get the answer from the vector store
+            answer = ask_question_with_file_search(question, vector_store_id)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
-        return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+        except Exception as e:
+            # Log the error and return a 500 error response
+            logger.error(f"Error while processing the question: {e}")
+            return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 def upload_pdf_page(request):
