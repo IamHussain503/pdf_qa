@@ -38,16 +38,34 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
 
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using the vector store and get a streaming response."""
-    thread = openai_client.beta.threads.create(
-        messages=[{"role": "user", "content": question}],
-        tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
-    )
+    try:
+        # Create a thread with the question and reference the vector store
+        thread = openai_client.beta.threads.create(
+            messages=[{"role": "user", "content": question}],
+            tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
+        )
 
-    response_text = ""
-    for message in thread.messages:
-        response_text += message['content']['text']
+        # Use the event handler to stream the response
+        event_handler = EventHandler()
 
-    return response_text
+        print(f"Question '{question}' is being asked with vector store ID '{vector_store_id}'...")
+
+        # Handle the stream using OpenAI's internal stream management
+        with openai_client.beta.threads.runs.stream(
+            thread_id=thread.id,
+            assistant_id=assistant.id,
+            instructions="Please address the user as Jane Doe. The user has a premium account.",
+            event_handler=event_handler,
+        ) as stream:
+            stream.until_done()  # Wait for the stream to finish
+
+        # Return the final streamed response
+        return event_handler.response
+
+    except Exception as e:
+        print(f"Error during question processing: {e}")
+        raise
+
 
 
 # Views and API endpoints
