@@ -16,6 +16,14 @@ client = MongoClient(os.getenv("MONGODB_URL"))
 # Initialize the OpenAI client
 openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Initialize the assistant
+assistant = openai_client.beta.assistants.create(
+    name="PDF File QA Assistant",
+    instructions="You are an assistant who answers questions based on the content of uploaded PDF files.",
+    model="gpt-4o",
+    tools=[{"type": "file_search"}]
+)
+
 # MongoDB setup
 db = client.Todo
 collection = db['home_uploadeddocument']
