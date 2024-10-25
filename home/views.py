@@ -5,18 +5,29 @@ import openai
 from pymongo import MongoClient
 from openai import OpenAI, AssistantEventHandler
 from typing_extensions import override
-
-
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import JsonResponse
 from .models import UploadedDocument
 import openai
-
-
 import logging
 logger = logging.getLogger(__name__)
+from pymongo import MongoClient
+
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+client = MongoClient(os.getenv("MONGODB_URL"))
+
+# Initialize the assistant
+assistant = openai.Assistant.create(
+    name="PDF File QA Assistant",
+    instructions="You are an assistant who answers questions based on the content of uploaded PDF files.",
+    model="gpt-4"
+)
+
+
+
 
 class UploadDocumentAPI(APIView):
     def post(self, request):
