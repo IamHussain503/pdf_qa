@@ -20,15 +20,6 @@ import os
 openai.api_key = os.getenv("OPENAI_API_KEY")
 client = MongoClient(os.getenv("MONGODB_URL"))
 
-# Initialize the assistant
-assistant = openai.Assistant.create(
-    name="PDF File QA Assistant",
-    instructions="You are an assistant who answers questions based on the content of uploaded PDF files.",
-    model="gpt-4"
-)
-
-
-
 
 class UploadDocumentAPI(APIView):
     def post(self, request):
@@ -230,22 +221,22 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
     return vector_store
 
 
+# Function to handle the question and retrieve answers
 def ask_question_with_file_search(question: str, vector_store_id: str):
-    """Ask a question using the vector store and get a streaming response."""
-    # Create a thread with the question and reference the vector store
-    thread = openai_client.beta.threads.create(
+    """Ask a question using the vector store and get a response."""
+    
+    # Send the question to OpenAI API
+    response = openai.ChatCompletion.create(
+        model="gpt-4",  # Choose the appropriate model
         messages=[
-            {
-                "role": "user",
-                "content": question
-            }
-        ],
-        tool_resources={
-            "file_search": {
-                "vector_store_ids": [vector_store_id]
-            }
-        }
+            {"role": "system", "content": "You are an assistant who answers questions based on PDF file content."},
+            {"role": "user", "content": question}
+        ]
     )
+
+    # Extract and return the answer from the response
+    answer = response['choices'][0]['message']['content']
+    return answer
 
     # Use the event handler to stream the response
     event_handler = EventHandler()
