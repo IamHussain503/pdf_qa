@@ -37,16 +37,20 @@ Make sure you have the following installed:
    git clone <repository_url>
    cd pdf_qa_assistant
 ## Setup enviornment
+```bash
 python3 -m venv venv
 source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 pip install -r requirements.txt
 export OPENAI_API_KEY="your_openai_api_key_here"
 export MONGODB_URL="your_mongodb_url_here"
 source ~/.bash_rc
+```
 ## Django Migrations
+```bash
 python manage.py migrate
 ## Run the application
 python manage.py runserver 0.0.0.0:8001
+```
 
 ## API Endpoints
 The following API endpoints are available:
