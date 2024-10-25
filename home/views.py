@@ -14,6 +14,7 @@ import openai
 import logging
 logger = logging.getLogger(__name__)
 from pymongo import MongoClient
+import os
 
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
