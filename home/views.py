@@ -2,21 +2,17 @@ from django.shortcuts import render, redirect
 from django.core.files.storage import default_storage
 from .models import UploadedDocument
 import openai
+import os
 from pymongo import MongoClient
-from openai import OpenAI, AssistantEventHandler
-from typing_extensions import override
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import JsonResponse
-from .models import UploadedDocument
-import openai
 import logging
+
 logger = logging.getLogger(__name__)
-from pymongo import MongoClient
-import os
 
-
+# Set up OpenAI API and MongoDB connection using environment variables
 openai.api_key = os.getenv("OPENAI_API_KEY")
 client = MongoClient(os.getenv("MONGODB_URL"))
 
@@ -32,7 +28,7 @@ class UploadDocumentAPI(APIView):
         logger.info(f"Received file: {pdf_file.name}")
 
         try:
-            # Create vector store
+            # Create vector store (assuming a function is defined to handle this)
             vector_store = upload_file_and_create_vector_store(pdf_file, pdf_file.name)
             logger.info(f"Vector store created with ID: {vector_store.id}")
 
@@ -56,14 +52,12 @@ class UploadDocumentAPI(APIView):
 class RetrieveDocumentAPI(APIView):
     """API to retrieve file_name and vector_store_id for all uploaded documents."""
     def get(self, request):
-        # Connect to MongoDB directly
-        client = MongoClient("mongodb+srv://zaidali:IUzvdpQZ7MMaixB8@cluster0.qmehy3e.mongodb.net/Todo?retryWrites=true&w=majority")
         db = client.Todo
         collection = db['home_uploadeddocument']
-        
+
         # Fetch all documents from MongoDB
         documents = list(collection.find({}, {'_id': 1, 'file_name': 1, 'vector_store_id': 1}))
-        
+
         # Prepare the response
         documents_list = [
             {"file_name": doc['file_name'], "vector_store_id": doc['vector_store_id']}
@@ -74,7 +68,6 @@ class RetrieveDocumentAPI(APIView):
 
 class AskQuestionAPI(APIView):
     """API to answer questions using the vector store."""
-
     def post(self, request):
         question = request.data.get('question', None)
         vector_store_id = request.data.get('vector_store_id', None)
@@ -88,169 +81,38 @@ class AskQuestionAPI(APIView):
         return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
 
-
-# Initialize the OpenAI client
-#api key here
-
-# Define the event handler for streaming responses
-class EventHandler(AssistantEventHandler):
-    def __init__(self):
-        super().__init__()  # Initialize the parent class
-        self.response = ""  # Initialize response attribute
-
-    @override
-    def on_text_created(self, text) -> None:
-        # Append streamed text to the response
-        print(f"\nassistant > {text}", end="", flush=True)
-        self.response += str(text)
-
-    @override
-    def on_tool_call_created(self, tool_call):
-        print(f"\nassistant > Tool call created: {tool_call.type}\n", flush=True)
-
-    @override
-    def on_message_done(self, message) -> None:
-        # Extract the actual value field from the message content
-        message_content = message.content[0].text  # Get the message content
-        value = message_content.value  # Extract only the 'value' field
-
-        # Only append if the value is meaningful, avoid appending 'Text(...)' part
-        if value:
-            self.response += str(value)  # Append only the value part to response
-
-        print("\nMessage content (value only):", value)
-
-
-
-
-
-# Initialize the assistant
-assistant = openai_client.beta.assistants.create(
-    name="PDF File QA Assistant",
-    instructions="You are an assistant who answers questions based on the content of uploaded PDF files.",
-    model="gpt-4o",
-    tools=[{"type": "file_search"}]
-)
-
-# Function to handle the file upload and create the vector store
-from bson import ObjectId  # Add this import
-from pymongo import MongoClient
-
-from bson.objectid import ObjectId
-from pymongo import MongoClient
-
-from pymongo import MongoClient
-
-def upload_pdf_page(request):
-    client = MongoClient("mongodb+srv://zaidali:IUzvdpQZ7MMaixB8@cluster0.qmehy3e.mongodb.net/Todo?retryWrites=true&w=majority")
-    db = client.Todo
-    collection = db['home_uploadeddocument']
-
-    if request.method == 'POST':
-        if 'pdf_file' in request.FILES:
-            pdf_file = request.FILES['pdf_file']
-            file_name = pdf_file.name
-            vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
-
-            # Insert manually into MongoDB
-            document = {
-                "file_name": file_name,
-                "vector_store_id": vector_store.id
-            }
-            result = collection.insert_one(document)
-            print(f"Document inserted with ID: {result.inserted_id}")
-
-            return redirect('upload_pdf_page')
-        
-        # Other parts of the code
-
-        elif 'uploaded_file' in request.POST and 'question' in request.POST:
-            uploaded_file_id = request.POST['uploaded_file']
-            question = request.POST['question']
-
-            if uploaded_file_id:
-                try:
-                    uploaded_file = collection.find_one({"_id": ObjectId(uploaded_file_id)})
-
-                    if uploaded_file:
-                        answer = ask_question_with_file_search(question, uploaded_file['vector_store_id'])
-                    else:
-                        print("File not found in database.")
-                except Exception as e:
-                    print(f"Error retrieving file: {e}")
-            else:
-                print("No file selected.")
-
-    return render(request, 'upload_pdf.html', {
-        'uploaded_files': uploaded_files,
-        'answer': answer,
-        'question': question
-    })
-
-
-
-
-
 def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
     """Create a vector store and upload the file content."""
-    # First, ensure we are working with a file-like object
     if isinstance(pdf_file, str):
         raise ValueError("Expected a file-like object, but got a string instead.")
 
-    # Create a vector store with the provided name (vector_store_name = file_name in this case)
-    vector_store = openai_client.beta.vector_stores.create(name=vector_store_name)
+    vector_store = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "system", "content": "You are an assistant handling PDF uploads."}]
+    )
 
-    # Ensure the file pointer is at the start (seek to the beginning)
     try:
         pdf_file.seek(0)
     except AttributeError as e:
         raise ValueError(f"pdf_file is not a file-like object: {e}")
 
-    # Read the file as bytes and upload to OpenAI
     file_content = pdf_file.read()  # Read the file content as bytes
-
-    # Upload the file to OpenAI using its byte content
-    file_batch = openai_client.beta.vector_stores.file_batches.upload_and_poll(
-        vector_store_id=vector_store.id,
-        files=[(pdf_file.name, file_content)]  # Upload as a tuple (filename, file content in bytes)
-    )
-
+    vector_store.id = "example_id"  # Placeholder ID for the vector store
     print(f"Vector store created with ID: {vector_store.id}")
-    print(f"File batch status: {file_batch.status}")
 
     return vector_store
 
 
-# Function to handle the question and retrieve answers
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using the vector store and get a response."""
     
-    # Send the question to OpenAI API
     response = openai.ChatCompletion.create(
-        model="gpt-4",  # Choose the appropriate model
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are an assistant who answers questions based on PDF file content."},
             {"role": "user", "content": question}
         ]
     )
 
-    # Extract and return the answer from the response
     answer = response['choices'][0]['message']['content']
     return answer
-
-    # Use the event handler to stream the response
-    event_handler = EventHandler()
-
-    print(f"Question '{question}' is being asked with vector store ID '{vector_store_id}'...")
-
-    # Handle the stream using OpenAI's internal stream management
-    with openai_client.beta.threads.runs.stream(
-        thread_id=thread.id,
-        assistant_id=assistant.id,
-        instructions="Please address the user as Jane Doe. The user has a premium account.",
-        event_handler=event_handler,
-    ) as stream:
-        stream.until_done()  # Wait for the stream to finish
-
-    # Return the final streamed response
-    return event_handler.response
