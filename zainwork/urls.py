@@ -38,6 +38,6 @@ urlpatterns = [
     path('upload_pdf/<str:vector_store_id>/', views.upload_pdf_page, name='upload_pdf_page_with_id'),  # Handle uploads with vector_store_id
     path('api/upload_document/', views.UploadDocumentAPI.as_view(), name='upload_document'),
     path('api/retrieve_documents/', views.RetrieveDocumentAPI.as_view(), name='retrieve_documents'),
-    path('api/ask_question/', views.AskQuestionAPI.as_view(), name='ask_question_api'),
+    path('api/ask_question/', views.AskQuestionAPI.as_view(), name='ask_question'),
 
 ]
