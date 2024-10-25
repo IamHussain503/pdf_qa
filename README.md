@@ -67,7 +67,9 @@ Response:
 file_name: The name of the uploaded file.
 vector_store_id: The vector store ID associated with the file.
 ### sample command
+```bash
 curl -X POST http://localhost:8001/api/upload_document/ -F "pdf_file=@path/to/yourfile.pdf"
+```
 
 ## 2. Retrieve Document API
 Endpoint: /api/retrieve_documents/
@@ -76,7 +78,9 @@ Method: GET
 Description: Retrieve information on all uploaded documents.
 Response: JSON array of documents, each containing file_id, file_name, and vector_store_id.
 Sample curl command:
+```bash
 curl -X GET http://localhost:8001/api/retrieve_documents/
+```
 ## 3. Ask Question API
 Endpoint: /api/ask_question/
 
@@ -90,4 +94,6 @@ Response:
 question: The question asked.
 answer: The answer based on the PDF content.
 Sample curl command:
+```bash
 curl -X POST http://localhost:8001/api/ask_question/ -H "Content-Type: application/json" -d "{\"question\": \"What is the purpose of the document?\", \"vector_store_id\": \"your_vector_store_id_here\"}"
+```
