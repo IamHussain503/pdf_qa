@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from bson import ObjectId
 from pymongo import MongoClient
-from openai import OpenAI, AssistantEventHandler
+from openai import OpenAI, AssistantEventHandler, OpenAIError
 from .models import UploadedDocument
 
 logger = logging.getLogger(__name__)
@@ -95,14 +95,16 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         # Return the final streamed response
         return event_handler.response
 
-    except openai.error.InvalidRequestError as e:
-        if e.http_status == 404 and "not found" in e.error.get('message', ''):
+    except OpenAIError as e:
+        error_message = str(e)
+        if "404" in error_message and "not found" in error_message:
             print(f"Vector store with ID '{vector_store_id}' not found in OpenAI. Deleting from MongoDB.")
             
             # Delete the document from MongoDB
             collection.delete_one({"vector_store_id": vector_store_id})
             print(f"Vector store ID '{vector_store_id}' deleted from MongoDB.")
-
+            return {"error": "The vector store ID was not found and has been removed from the database."}
+        
         else:
             print(f"Error during question processing: {e}")
             raise e
