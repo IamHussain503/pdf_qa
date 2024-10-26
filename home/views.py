@@ -70,38 +70,43 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using the vector store and get a streaming response."""
     try:
-        # Modify the question with additional instructions to avoid links
-        question = (
-            f"{question} Please provide an answer that excludes any references, links, or citation markers such as 'health.pdf' "
-            "or any notation in brackets. Focus solely on providing an answer without external references."
-        )
+        # Add a phrase to the question before sending
+        modified_question = f"{question} Please do not send any relevant links in the answer as well as remove any unwanted characters from the answer."
 
-        # Create a thread with the modified question
+        # Create a thread with the modified question and reference the vector store
         thread = openai_client.beta.threads.create(
-            messages=[{"role": "user", "content": question}],
+            messages=[{"role": "user", "content": modified_question}],
             tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
         )
 
         # Use the event handler to stream the response
         event_handler = EventHandler()
+        print(f"Question '{modified_question}' is being asked with vector store ID '{vector_store_id}'...")
 
-        logger.info(f"Question '{question}' is being asked with vector store ID '{vector_store_id}'...")
-
-        # Run the OpenAI stream
+        # Handle the stream using OpenAI's internal stream management
         with openai_client.beta.threads.runs.stream(
             thread_id=thread.id,
             assistant_id=assistant.id,
-            instructions="Provide an answer in clear language that is complete and free from external references, "
-                         "links, or any unnecessary symbols. Do not include phrases such as '[4:1†health.pdf]'.",
+            instructions="Please address the user as Jane Doe. The user has a premium account.",
             event_handler=event_handler,
         ) as stream:
-            stream.until_done()
+            stream.until_done()  # Wait for the stream to finish
 
+        # Return the final streamed response
         return event_handler.response
 
-    except Exception as e:
-        logger.error(f"Error during question processing: {e}")
-        raise
+    except openai.error.InvalidRequestError as e:
+        if e.http_status == 404 and "not found" in e.error.get('message', ''):
+            print(f"Vector store with ID '{vector_store_id}' not found in OpenAI. Deleting from MongoDB.")
+            
+            # Delete the document from MongoDB
+            collection.delete_one({"vector_store_id": vector_store_id})
+            print(f"Vector store ID '{vector_store_id}' deleted from MongoDB.")
+
+        else:
+            print(f"Error during question processing: {e}")
+            raise e
+
 
 
 
