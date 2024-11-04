@@ -113,25 +113,61 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
 
 
 # API Views
+# class UploadDocumentAPI(APIView):
+#     """API to upload a PDF document and create a vector store."""
+
+#     def post(self, request):
+#         if 'pdf_file' not in request.FILES:
+#             return Response({"error": "No PDF file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         pdf_file = request.FILES['pdf_file']
+#         file_name = pdf_file.name
+
+#         vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
+#         document = {"file_name": file_name, "vector_store_id": vector_store.id}
+#         result = collection.insert_one(document)
+
+#         return Response({
+#             "file_name": file_name,
+#             "vector_store_id": vector_store.id,
+#             "document_id": str(result.inserted_id)
+#         }, status=status.HTTP_201_CREATED)\
+
 class UploadDocumentAPI(APIView):
-    """API to upload a PDF document and create a vector store."""
+    """API to upload multiple PDF documents and create a single vector store for them."""
 
     def post(self, request):
-        if 'pdf_file' not in request.FILES:
-            return Response({"error": "No PDF file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+        if 'pdf_files' not in request.FILES:
+            return Response({"error": "No PDF files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
-        pdf_file = request.FILES['pdf_file']
-        file_name = pdf_file.name
+        pdf_files = request.FILES.getlist('pdf_files')  # Get multiple files
+        file_names = [pdf_file.name for pdf_file in pdf_files]
 
-        vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
-        document = {"file_name": file_name, "vector_store_id": vector_store.id}
-        result = collection.insert_one(document)
+        # Create a vector store with multiple files
+        vector_store = openai_client.beta.vector_stores.create(name="Multi-Document Vector Store")
+        file_streams = [(pdf_file.name, pdf_file.read()) for pdf_file in pdf_files]
 
-        return Response({
-            "file_name": file_name,
-            "vector_store_id": vector_store.id,
-            "document_id": str(result.inserted_id)
-        }, status=status.HTTP_201_CREATED)
+        # Upload multiple files to the vector store and monitor the status
+        file_batch = openai_client.beta.vector_stores.file_batches.upload_and_poll(
+            vector_store_id=vector_store.id,
+            files=file_streams
+        )
+
+        if file_batch.status == "completed":
+            logger.info(f"Vector store created with ID: {vector_store.id}")
+            documents = [{"file_name": name, "vector_store_id": vector_store.id} for name in file_names]
+            collection.insert_many(documents)
+
+            return Response({
+                "file_names": file_names,
+                "vector_store_id": vector_store.id,
+                "status": "Files uploaded successfully"
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                "error": "Failed to upload files to vector store. Please try again."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class RetrieveDocumentAPI(APIView):
