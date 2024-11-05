@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # MongoDB and OpenAI setup
 client = MongoClient(os.getenv("MONGODB_URL"))
 db = client.Todo
-collection = db['home_uploadeddocument']
+collection = db['uploadeddocument']
 
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
