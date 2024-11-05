@@ -93,26 +93,30 @@ def ask_question_with_summary(question, combined_summary):
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask OpenAI for a summary of a document segment using the vector store."""
     try:
-        # Modify the question for clearer instruction
+        # Modify the question to fit the new ChatCompletion format
         modified_question = f"{question} Please summarize the content relevant to this vector store ID."
 
-        # Send a request to OpenAI with the vector store reference, using gpt-4-turbo model
+        # Use the ChatCompletion endpoint with the "gpt-4-turbo" model
         logger.info(f"Sending request to OpenAI for vector store ID {vector_store_id} with question: {modified_question}")
-        response = openai.Completion.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4-turbo",  # or "gpt-4o" depending on your setup
-            prompt=modified_question,
+            messages=[
+                {"role": "system", "content": "You are an assistant that summarizes document segments."},
+                {"role": "user", "content": modified_question}
+            ],
             max_tokens=100
         )
         
-        # Log the OpenAI response for debugging
-        summary = response.choices[0].text.strip()
+        # Extract the response content
+        summary = response.choices[0].message['content'].strip()
         logger.info(f"OpenAI response for vector store ID {vector_store_id}: {summary[:100]}")  # Log first 100 chars
         
         return summary
 
-    except Exception as e:  # Use general Exception to handle all errors
+    except Exception as e:
         logger.error(f"Error during summary generation for vector store ID {vector_store_id}: {e}")
         return ""
+
 
 
 
