@@ -139,19 +139,19 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using the vector store and get a streaming response."""
     try:
+        # Modify the question for clearer instruction
         modified_question = f"{question} Please focus on detailed responses and use the relevant documents in the vector store."
+        logger.info(f"Asking question: {modified_question} with vector store ID: {vector_store_id}")
 
         # Create a thread with the question and reference the vector store
         thread = openai_client.beta.threads.create(
             messages=[{"role": "user", "content": modified_question}],
             tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
         )
+        logger.info("Thread created successfully, initiating file search...")
 
-        # Use the event handler to stream the response
+        # Initialize the event handler and start streaming
         event_handler = EventHandler()
-        print(f"Question '{modified_question}' is being asked with vector store ID '{vector_store_id}'...")
-
-        # Stream the response with added instructions
         with openai_client.beta.threads.runs.stream(
             thread_id=thread.id,
             assistant_id=assistant.id,
@@ -159,10 +159,13 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
             event_handler=event_handler,
         ) as stream:
             stream.until_done()  # Wait for the stream to finish
+            logger.info("File search completed.")
 
-        # Log the full response for debugging
-        logger.info(f"Full response: {event_handler.response}")
-        return event_handler.response
+        # Log the response obtained from the assistant
+        full_response = event_handler.response
+        logger.info(f"Full assistant response: {full_response}")
+        
+        return full_response if full_response else {"error": "No content returned from vector store search."}
 
     except OpenAIError as e:
         error_message = str(e)
@@ -174,6 +177,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         else:
             logger.error(f"Error during question processing: {e}")
             raise e
+
 
 
 
