@@ -65,15 +65,16 @@ class EventHandler(AssistantEventHandler):
         print(f"\nassistant > Tool call created: {tool_call.type}\n", flush=True)
 
     def on_tool_response(self, tool_response):
-        # Log the actual content of the tool response to debug if file contents are retrieved
+        # Log any tool response to capture content explicitly
         print(f"\nTool response content: {tool_response.content}", flush=True)
-        self.response += tool_response.content  # Append tool response content to overall response
+        self.response += tool_response.content
 
     def on_message_done(self, message) -> None:
         if message.content:
             message_content = message.content[0].text
             self.response += str(message_content)
         print("\nFull response captured:", self.response)
+
 
 
 
