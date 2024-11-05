@@ -29,6 +29,27 @@ assistant = openai_client.beta.assistants.create(
 )
 
 
+# class EventHandler(AssistantEventHandler):
+#     """Handles OpenAI streaming responses."""
+    
+#     def __init__(self):
+#         super().__init__()
+#         self.response = ""
+
+#     def on_text_created(self, text) -> None:
+#         print(f"\nassistant > {text}", end="", flush=True)
+#         self.response += str(text)
+
+#     def on_tool_call_created(self, tool_call):
+#         print(f"\nassistant > Tool call created: {tool_call.type}\n", flush=True)
+
+#     def on_message_done(self, message) -> None:
+#         message_content = message.content[0].text
+#         value = message_content.value
+#         if value:
+#             self.response += str(value)
+#         print("\nMessage content (value only):", value)
+
 class EventHandler(AssistantEventHandler):
     """Handles OpenAI streaming responses."""
     
@@ -43,12 +64,16 @@ class EventHandler(AssistantEventHandler):
     def on_tool_call_created(self, tool_call):
         print(f"\nassistant > Tool call created: {tool_call.type}\n", flush=True)
 
+    def on_tool_response(self, tool_response):
+        print(f"\nTool response: {tool_response.content}", flush=True)  # Log tool response content
+        self.response += tool_response.content
+
     def on_message_done(self, message) -> None:
-        message_content = message.content[0].text
-        value = message_content.value
-        if value:
-            self.response += str(value)
-        print("\nMessage content (value only):", value)
+        if message.content:
+            message_content = message.content[0].text
+            self.response += str(message_content)
+        print("\nFull response captured:", self.response)
+
 
 
 def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
