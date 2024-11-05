@@ -65,8 +65,9 @@ class EventHandler(AssistantEventHandler):
         print(f"\nassistant > Tool call created: {tool_call.type}\n", flush=True)
 
     def on_tool_response(self, tool_response):
-        print(f"\nTool response: {tool_response.content}", flush=True)  # Log tool response content
-        self.response += tool_response.content
+        # Log the actual content of the tool response to debug if file contents are retrieved
+        print(f"\nTool response content: {tool_response.content}", flush=True)
+        self.response += tool_response.content  # Append tool response content to overall response
 
     def on_message_done(self, message) -> None:
         if message.content:
@@ -138,8 +139,7 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using the vector store and get a streaming response."""
     try:
-        # Modify the question if necessary for clarity.
-        modified_question = f"{question} Please provide detailed responses based on the uploaded content."
+        modified_question = f"{question} Please focus on detailed responses and use the relevant documents in the vector store."
 
         # Create a thread with the question and reference the vector store
         thread = openai_client.beta.threads.create(
@@ -151,11 +151,11 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         event_handler = EventHandler()
         print(f"Question '{modified_question}' is being asked with vector store ID '{vector_store_id}'...")
 
-        # Stream the response and log it
+        # Stream the response with added instructions
         with openai_client.beta.threads.runs.stream(
             thread_id=thread.id,
             assistant_id=assistant.id,
-            instructions="Answer questions based on all uploaded documents. Avoid irrelevant information.",
+            instructions="Use all content from the vector store to provide a comprehensive answer.",
             event_handler=event_handler,
         ) as stream:
             stream.until_done()  # Wait for the stream to finish
