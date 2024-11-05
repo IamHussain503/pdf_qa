@@ -111,7 +111,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         
         return summary
 
-    except openai.OpenAIError as e:  # Use openai.OpenAIError directly
+    except Exception as e:  # Use general Exception to handle all errors
         logger.error(f"Error during summary generation for vector store ID {vector_store_id}: {e}")
         return ""
 
