@@ -5,3 +5,4 @@ djongo
 pytz
 six
 django-utils-six
+PyPDF2
