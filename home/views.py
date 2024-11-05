@@ -45,12 +45,16 @@ def get_document_summary(vector_store_ids, broad_question="Summarize this docume
     """Generate a summary for each document segment and combine into a single summary."""
     summaries = []
     for store_id in vector_store_ids:
-        summary = ask_question_with_file_search(broad_question, store_id)
-        summaries.append(summary)
+        try:
+            summary = ask_question_with_file_search(broad_question, store_id)
+            summaries.append(summary)
+        except Exception as e:
+            logger.error(f"Error generating summary for vector store ID {store_id}: {e}")
 
     # Combine individual summaries into a single comprehensive summary
     combined_summary = " ".join(summaries)
     return combined_summary
+
 
 ### Helper Function: Ask Question Using Summary
 
@@ -74,20 +78,17 @@ def ask_question_with_summary(question, combined_summary):
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using a vector store and get a direct response."""
     try:
-        # Modify the question for clearer instruction
         modified_question = f"{question} Please focus on detailed responses and use the relevant documents in the vector store."
-
-        # Use OpenAI's standard completion or chat endpoint with the vector store reference
         response = openai.Completion.create(
             model="gpt-4",
             prompt=modified_question,
             max_tokens=100
         )
         return response.choices[0].text.strip()
-
     except openai.error.OpenAIError as e:
-        logger.error(f"Error during question processing: {e}")
-        return {"error": "Internal Server Error. Check logs for details."}
+        logger.error(f"Error during question processing for vector store ID {vector_store_id}: {e}")
+        return "Error generating summary."
+
 
 ### API View: Upload Document, Segment, and Create Vector Stores
 
@@ -166,24 +167,45 @@ class AskQuestionAPI(APIView):
         document_id = request.data.get('document_id')  # Using document ID to identify the document
 
         if not question or not document_id:
+            logger.error("Both 'question' and 'document_id' are required.")
             return Response({"error": "Both 'question' and 'document_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Retrieve the document metadata
-        document = collection.find_one({"_id": ObjectId(document_id)})
+        try:
+            document = collection.find_one({"_id": ObjectId(document_id)})
+        except Exception as e:
+            logger.error(f"Error retrieving document from MongoDB: {e}")
+            return Response({"error": "Error retrieving document from database."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         if not document:
+            logger.error("Document not found.")
             return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Check if a combined summary already exists
-        if "summary" not in document or not document["summary"]:
-            # Generate the summary if not available
-            broad_question = "Summarize this document section."
-            combined_summary = get_document_summary(document["vector_store_ids"], broad_question)
+        try:
+            if "summary" not in document or not document["summary"]:
+                logger.info("Generating summary for document.")
+                broad_question = "Summarize this document section."
+                
+                # Generate the combined summary
+                combined_summary = get_document_summary(document["vector_store_ids"], broad_question)
+                
+                # Update the document with the combined summary
+                collection.update_one({"_id": ObjectId(document_id)}, {"$set": {"summary": combined_summary}})
+                logger.info(f"Summary generated and updated for document ID: {document_id}")
+            else:
+                combined_summary = document["summary"]
+                logger.info(f"Using existing summary for document ID: {document_id}")
 
-            # Update the document with the combined summary
-            collection.update_one({"_id": ObjectId(document_id)}, {"$set": {"summary": combined_summary}})
-        else:
-            combined_summary = document["summary"]
+        except Exception as e:
+            logger.error(f"Error generating or storing summary: {e}")
+            return Response({"error": "Error generating or storing summary."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Ask the specific question based on the combined summary
-        answer = ask_question_with_summary(question, combined_summary)
-        return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+        try:
+            answer = ask_question_with_summary(question, combined_summary)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error during question processing: {e}")
+            return Response({"error": "Error during question processing."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
