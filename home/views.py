@@ -46,21 +46,24 @@ def get_document_summary(vector_store_ids, broad_question="Summarize this docume
     summaries = []
     for store_id in vector_store_ids:
         try:
+            # Query OpenAI for the summary of each segment
             summary = ask_question_with_file_search(broad_question, store_id)
             if summary:
                 summaries.append(summary)
-                logger.info(f"Summary generated for vector store ID {store_id}: {summary[:100]}")  # Log the first 100 characters
+                logger.info(f"Summary generated for vector store ID {store_id}: {summary[:100]}")  # Log the first 100 characters of the summary
             else:
                 logger.warning(f"No summary returned for vector store ID {store_id}.")
         except Exception as e:
             logger.error(f"Error generating summary for vector store ID {store_id}: {e}")
 
+    # Combine individual summaries into a single comprehensive summary
     combined_summary = " ".join(summaries)
     if combined_summary:
         logger.info("Combined summary created successfully.")
     else:
         logger.error("Combined summary is empty.")
     return combined_summary
+
 
 
 
@@ -85,18 +88,28 @@ def ask_question_with_summary(question, combined_summary):
 ### Function to Handle Segment-based Question Answering
 
 def ask_question_with_file_search(question: str, vector_store_id: str):
-    """Ask a question using a vector store and get a direct response."""
+    """Ask OpenAI for a summary of a document segment using the vector store."""
     try:
-        modified_question = f"{question} Please focus on detailed responses and use the relevant documents in the vector store."
+        # Modify the question for clearer instruction
+        modified_question = f"{question} Please summarize the content relevant to this vector store ID."
+
+        # Send a request to OpenAI with the vector store reference, using gpt-4-turbo model
         response = openai.Completion.create(
-            model="gpt-4",
+            model="gpt-4-turbo",  # or "gpt-4o" depending on your setup
             prompt=modified_question,
             max_tokens=100
         )
-        return response.choices[0].text.strip()
+        
+        # Log the OpenAI response for debugging
+        summary = response.choices[0].text.strip()
+        logger.info(f"OpenAI response for vector store ID {vector_store_id}: {summary[:100]}")
+        
+        return summary
+
     except openai.error.OpenAIError as e:
-        logger.error(f"Error during question processing for vector store ID {vector_store_id}: {e}")
+        logger.error(f"Error during summary generation for vector store ID {vector_store_id}: {e}")
         return "Error generating summary."
+
 
 
 ### API View: Upload Document, Segment, and Create Vector Stores
