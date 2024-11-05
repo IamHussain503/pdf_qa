@@ -1,7 +1,6 @@
 import os
 import openai
 import logging
-from openai.error import OpenAIError  # Import the error class directly
 from io import BytesIO
 from datetime import datetime
 from pymongo import MongoClient
