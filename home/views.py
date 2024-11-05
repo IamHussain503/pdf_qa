@@ -91,16 +91,24 @@ def ask_question_with_summary(question, combined_summary):
 
 
 def ask_question_with_file_search(question: str, vector_store_id: str):
-    """Ask OpenAI for a summary of a document segment using the vector store."""
+    """Retrieve document content by vector store ID and request a summary from OpenAI."""
     try:
-        # Modify the question for clearer instruction
+        # Step 1: Retrieve document content based on vector_store_id
+        document = collection.find_one({"_id": ObjectId(vector_store_id)})
+        if not document or "content" not in document:
+            logger.error(f"No document content found for vector store ID: {vector_store_id}")
+            return "Error: No document content found."
+
+        # Get the actual content of the document section
+        document_content = document["content"]  # Assuming the content is stored under 'content' field
+
+        # Step 2: Modify the question to include the document content
         modified_question = (
-            f"{question}\n\nThe following is a document section identified by vector store ID: {vector_store_id}. "
-            "Please provide a concise summary of the content without additional context."
+            f"{question}\n\nThe following is a document section to summarize:\n\n{document_content}"
         )
 
         # Use the ChatCompletion endpoint with the chat model
-        logger.info(f"Sending request to OpenAI for vector store ID {vector_store_id} with question: {modified_question}")
+        logger.info(f"Sending request to OpenAI for document content with vector store ID {vector_store_id}")
         response = openai.ChatCompletion.create(
             model="gpt-4-turbo",
             messages=[
@@ -119,6 +127,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
     except Exception as e:
         logger.error(f"Error during summary generation for vector store ID {vector_store_id}: {e}")
         return f"Error: {e}"
+
 
 
 
