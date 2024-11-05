@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 client = MongoClient(os.getenv("MONGODB_URL"))
 db = client.students
 collection = db['summarized_documents']
-openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
+openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 logger = logging.getLogger(__name__)
