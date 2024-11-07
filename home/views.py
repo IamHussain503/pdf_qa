@@ -9,6 +9,16 @@ from rest_framework.response import Response
 from rest_framework import status
 from bson import ObjectId
 from PyPDF2 import PdfReader, PdfWriter
+import openai
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from bson import ObjectId
+from datetime import datetime
+from io import BytesIO
+import logging
+from PyPDF2 import PdfReader, PdfWriter
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -152,46 +162,70 @@ class UploadDocumentAPI(APIView):
     """API to upload a PDF document, segment it, create vector stores for each segment, and generate summaries."""
 
     def post(self, request):
-        if 'pdf_file' not in request.FILES:
-            return Response({"error": "No PDF file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # Step 1: Check if the PDF file is in the request
+            if 'pdf_file' not in request.FILES:
+                logger.error("No PDF file uploaded in the request.")
+                return Response({"error": "No PDF file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
-        pdf_file = request.FILES['pdf_file']
-        file_name = pdf_file.name
+            pdf_file = request.FILES['pdf_file']
+            file_name = pdf_file.name
 
-        # Step 1: Split the PDF into segments
-        segments = split_pdf_into_segments(pdf_file)
+            # Step 2: Split the PDF into segments
+            try:
+                segments = split_pdf_into_segments(pdf_file)
+            except Exception as e:
+                logger.error(f"Error splitting PDF: {e}")
+                return Response({"error": "Error processing PDF file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Step 2: Create a vector store for each segment and store IDs
-        vector_store_ids = []
-        for i, segment in enumerate(segments):
-            # Create a vector store for each segment
-            vector_store = openai_client.beta.vector_stores.create(name=f"{file_name}_segment_{i}")
-            file_batch = openai_client.beta.vector_stores.file_batches.upload_and_poll(
-                vector_store_id=vector_store.id,
-                files=[(f"{file_name}_segment_{i}.pdf", segment.read())]
-            )
-            vector_store_ids.append(vector_store.id)
+            # Step 3: Create a vector store for each segment and collect IDs
+            vector_store_ids = []
+            for i, segment in enumerate(segments):
+                try:
+                    # Use `openai` directly instead of `openai_client`
+                    vector_store = openai.beta.vector_stores.create(name=f"{file_name}_segment_{i}")
+                    file_batch = openai.beta.vector_stores.file_batches.upload_and_poll(
+                        vector_store_id=vector_store.id,
+                        files=[(f"{file_name}_segment_{i}.pdf", segment.read())]
+                    )
+                    vector_store_ids.append(vector_store.id)
+                except Exception as e:
+                    logger.error(f"Error creating vector store or uploading segment {i}: {e}")
+                    return Response({"error": "Error creating vector stores for document segments."},
+                                    status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Step 3: Insert document metadata in MongoDB without summaries
-        document = {
-            "file_name": file_name,
-            "vector_store_ids": vector_store_ids,
-            "upload_date": datetime.utcnow(),
-            "segment_summaries": [],  # Placeholder for individual segment summaries
-            "summary": ""  # Placeholder for the combined summary
-        }
-        result = collection.insert_one(document)
+            # Step 4: Insert initial document metadata in MongoDB without summaries
+            try:
+                document = {
+                    "file_name": file_name,
+                    "vector_store_ids": vector_store_ids,
+                    "upload_date": datetime.utcnow(),
+                    "segment_summaries": [],  # Placeholder for individual segment summaries
+                    "summary": ""  # Placeholder for the combined summary
+                }
+                result = collection.insert_one(document)
+            except Exception as e:
+                logger.error(f"Error inserting document metadata into MongoDB: {e}")
+                return Response({"error": "Database insertion error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Step 4: Generate summaries for each segment and the combined summary
-        # This will update the MongoDB document with each segment's summary and the combined summary
-        get_document_summary(result.inserted_id, vector_store_ids)
+            # Step 5: Generate summaries for each segment and the combined summary
+            try:
+                get_document_summary(result.inserted_id, vector_store_ids)
+            except Exception as e:
+                logger.error(f"Error generating summaries for document segments: {e}")
+                return Response({"error": "Summary generation error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Step 5: Return response with vector store IDs and MongoDB document ID
-        return Response({
-            "file_name": file_name,
-            "vector_store_ids": vector_store_ids,
-            "document_id": str(result.inserted_id)
-        }, status=status.HTTP_201_CREATED)
+            # Step 6: Return a response with vector store IDs and MongoDB document ID
+            return Response({
+                "file_name": file_name,
+                "vector_store_ids": vector_store_ids,
+                "document_id": str(result.inserted_id)
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            # Catch-all for any unexpected errors
+            logger.error(f"Unexpected error in UploadDocumentAPI: {e}")
+            return Response({"error": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 ### API View: Retrieve All Documents with Metadata
 
