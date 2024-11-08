@@ -44,31 +44,52 @@ def convert_excel_to_csv_chunks(excel_file, chunk_size=50):
         return None
 
 
-### Helper Function: Answer Questions Using CSV Data Chunks
+### Helper Function: Summarize CSV Chunks
 
-def ask_question_with_csv_chunks(question, csv_chunks):
-    """Answer a question using concatenated CSV data chunks."""
-    answers = []
+def summarize_csv_chunks(csv_chunks):
+    """Summarize each CSV chunk to reduce details."""
+    summaries = []
     for chunk in csv_chunks:
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that answers questions based on CSV data."},
-                    {"role": "user", "content": f"{question} Based on the following CSV data: {chunk}"}
+                    {"role": "system", "content": "Summarize the following CSV data."},
+                    {"role": "user", "content": chunk}
                 ],
                 max_tokens=500,
                 temperature=0.5
             )
-            answer = response.choices[0].message['content'].strip()
-            answers.append(answer)
+            summary = response.choices[0].message['content'].strip()
+            summaries.append(summary)
         except openai.error.OpenAIError as e:
-            logger.error(f"Error answering question with CSV data chunk: {e}")
-            return "Error: Unable to answer the question."
+            logger.error(f"Error summarizing CSV data chunk: {e}")
+            return "Error: Unable to summarize the data."
     
-    # Concatenate all answers from each chunk
-    full_answer = " ".join(answers)
-    return full_answer
+    # Combine all summaries into a single summary text
+    combined_summary = " ".join(summaries)
+    return combined_summary
+
+
+### Helper Function: Answer Questions Using the Combined Summary
+
+def answer_question_from_summary(question, summary_text):
+    """Answer a question using the combined summary text."""
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Answer the question based on the summary provided."},
+                {"role": "user", "content": f"{question} Based on the following summary: {summary_text}"}
+            ],
+            max_tokens=500,
+            temperature=0.5
+        )
+        answer = response.choices[0].message['content'].strip()
+        return answer
+    except openai.error.OpenAIError as e:
+        logger.error(f"Error answering question from summary: {e}")
+        return "Error: Unable to answer the question."
 
 
 ### API View: Upload Document, Handle Excel/CSV, and Store in MongoDB
@@ -127,7 +148,7 @@ class UploadDocumentAPI(APIView):
             return Response({"error": "Unsupported file type."}, status=status.HTTP_400_BAD_REQUEST)
 
 
-### API View: Ask Question Using Document Content
+### API View: Ask Question Using Document Content with Summary-Based Approach
 
 class AskQuestionAPI(APIView):
     """API to answer questions based on document content (PDF or Excel) stored in MongoDB."""
@@ -156,12 +177,16 @@ class AskQuestionAPI(APIView):
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
         elif file_type == "excel":
-            # Use CSV data chunks for answering Excel questions
+            # Summarize CSV data chunks for Excel questions
             csv_chunks = document.get("csv_chunks", [])
             if not csv_chunks:
                 return Response({"error": "No CSV data available for this document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            answer = ask_question_with_csv_chunks(question, csv_chunks)
+            # Step 1: Summarize each chunk and combine
+            combined_summary = summarize_csv_chunks(csv_chunks)
+
+            # Step 2: Answer the question based on the combined summary
+            answer = answer_question_from_summary(question, combined_summary)
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
         else:
