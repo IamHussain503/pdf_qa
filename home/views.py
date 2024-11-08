@@ -21,49 +21,151 @@ collection = db['documents']
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-### Helper Function: Convert Excel to CSV and Store
+### Helper Function: Convert Excel to CSV Chunks and Store
 
-def convert_excel_to_csv(excel_file):
-    """Convert Excel file to CSV format and return as a string."""
+def convert_excel_to_csv_chunks(excel_file, chunk_size=50):
+    """Convert Excel file to CSV format and split it into chunks."""
     try:
-        # Attempt to read the Excel file using pandas
-        df = pd.read_excel(excel_file, engine="xlrd" if excel_file.name.endswith('.xls') else "openpyxl")
-        logger.info("Excel file read successfully.")
+        # Read the Excel file into a DataFrame
+        df = pd.read_excel(excel_file)
+        csv_chunks = []
+
+        # Split DataFrame into chunks
+        for i in range(0, len(df), chunk_size):
+            chunk = df.iloc[i:i + chunk_size]
+            csv_buffer = StringIO()
+            chunk.to_csv(csv_buffer, index=False)
+            csv_data = csv_buffer.getvalue()
+            csv_chunks.append(csv_data)
         
-        # Convert DataFrame to CSV format as a string
-        csv_buffer = StringIO()
-        df.to_csv(csv_buffer, index=False)
-        csv_data = csv_buffer.getvalue()
-        
-        return csv_data
-    except ValueError as e:
-        logger.error(f"ValueError in converting Excel to CSV: {e}")
-        return None
+        return csv_chunks
     except Exception as e:
-        logger.error(f"Error converting Excel to CSV: {e}")
+        logger.error(f"Error converting Excel to CSV chunks: {e}")
         return None
 
 
+### Helper Function: Answer Questions Using CSV Data Chunks
 
-### Helper Function: Answer Questions Using CSV Data
+def ask_question_with_csv_chunks(question, csv_chunks):
+    """Answer a question using concatenated CSV data chunks."""
+    answers = []
+    for chunk in csv_chunks:
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that answers questions based on CSV data."},
+                    {"role": "user", "content": f"{question} Based on the following CSV data: {chunk}"}
+                ],
+                max_tokens=500,
+                temperature=0.5
+            )
+            answer = response.choices[0].message['content'].strip()
+            answers.append(answer)
+        except openai.error.OpenAIError as e:
+            logger.error(f"Error answering question with CSV data chunk: {e}")
+            return "Error: Unable to answer the question."
+    
+    # Concatenate all answers from each chunk
+    full_answer = " ".join(answers)
+    return full_answer
 
-def ask_question_with_csv_data(question, csv_data):
-    """Answer a question using CSV data as context."""
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that answers questions based on CSV data."},
-                {"role": "user", "content": f"{question} Based on the following CSV data: {csv_data}"}
-            ],
-            max_tokens=100,
-            temperature=0.5
-        )
-        answer = response.choices[0].message['content'].strip()
-        return answer
-    except openai.error.OpenAIError as e:
-        logger.error(f"Error answering question with CSV data: {e}")
-        return "Error: Unable to answer the question."
+
+### API View: Upload Document, Handle Excel/CSV, and Store in MongoDB
+
+class UploadDocumentAPI(APIView):
+    """API to upload a document (PDF/Excel), convert and store in MongoDB."""
+
+    def post(self, request):
+        if 'file' not in request.FILES:
+            return Response({"error": "No file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        file = request.FILES['file']
+        file_name = file.name
+        file_extension = file_name.split('.')[-1].lower()
+
+        if file_extension == 'pdf':
+            # Handle PDF file
+            segments = split_pdf_into_segments(file)
+            combined_full_text = get_document_full_text(segments)
+
+            document = {
+                "file_name": file_name,
+                "file_type": "pdf",
+                "upload_date": datetime.utcnow(),
+                "full_text": combined_full_text
+            }
+            result = collection.insert_one(document)
+
+            return Response({
+                "file_name": file_name,
+                "document_id": str(result.inserted_id),
+                "full_text": combined_full_text
+            }, status=status.HTTP_201_CREATED)
+
+        elif file_extension in ['xls', 'xlsx']:
+            # Handle Excel file and convert to CSV chunks
+            csv_chunks = convert_excel_to_csv_chunks(file)
+            if not csv_chunks:
+                return Response({"error": "Error processing Excel file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            document = {
+                "file_name": file_name,
+                "file_type": "excel",
+                "upload_date": datetime.utcnow(),
+                "csv_chunks": csv_chunks  # Store the CSV data in chunks
+            }
+            result = collection.insert_one(document)
+
+            return Response({
+                "file_name": file_name,
+                "document_id": str(result.inserted_id),
+                "csv_chunks": csv_chunks
+            }, status=status.HTTP_201_CREATED)
+
+        else:
+            return Response({"error": "Unsupported file type."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+### API View: Ask Question Using Document Content
+
+class AskQuestionAPI(APIView):
+    """API to answer questions based on document content (PDF or Excel) stored in MongoDB."""
+
+    def post(self, request):
+        question = request.data.get('question')
+        document_id = request.data.get('document_id')
+
+        if not question or not document_id:
+            return Response({"error": "Both 'question' and 'document_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Retrieve the document from MongoDB
+        document = collection.find_one({"_id": ObjectId(document_id)})
+        if not document:
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        file_type = document.get("file_type")
+
+        if file_type == "pdf":
+            # Use full text for answering PDF questions
+            full_text = document.get("full_text", "")
+            if not full_text:
+                return Response({"error": "No full text available for this document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            answer = ask_question_with_full_text(question, full_text)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+
+        elif file_type == "excel":
+            # Use CSV data chunks for answering Excel questions
+            csv_chunks = document.get("csv_chunks", [])
+            if not csv_chunks:
+                return Response({"error": "No CSV data available for this document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            answer = ask_question_with_csv_chunks(question, csv_chunks)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+
+        else:
+            return Response({"error": "Unsupported document type."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 ### Helper Function: Splitting PDF into Segments
@@ -117,7 +219,7 @@ def ask_question_with_full_text(question, full_text):
                 {"role": "system", "content": "You are a helpful assistant that answers questions based on full document text."},
                 {"role": "user", "content": f"{question} Based on the following document text: {full_text}"}
             ],
-            max_tokens=100,
+            max_tokens=500,
             temperature=0.5
         )
         answer = response.choices[0].message['content'].strip()
@@ -125,6 +227,9 @@ def ask_question_with_full_text(question, full_text):
     except openai.error.OpenAIError as e:
         logger.error(f"Error answering question with full text: {e}")
         return "Error: Unable to answer the question."
+
+
+### API View: Retrieve All Documents with Metadata
 
 class RetrieveDocumentsAPI(APIView):
     """API to retrieve all documents with their metadata."""
@@ -148,103 +253,3 @@ class RetrieveDocumentsAPI(APIView):
         ]
 
         return Response({"documents": document_list}, status=status.HTTP_200_OK)
-
-
-
-
-
-### API View: Upload Document, Handle Excel/CSV, and Store in MongoDB
-
-class UploadDocumentAPI(APIView):
-    """API to upload a document (PDF/Excel), convert and store in MongoDB."""
-
-    def post(self, request):
-        if 'file' not in request.FILES:
-            return Response({"error": "No file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
-
-        file = request.FILES['file']
-        file_name = file.name
-        file_extension = file_name.split('.')[-1].lower()
-
-        if file_extension == 'pdf':
-            # Handle PDF file
-            segments = split_pdf_into_segments(file)
-            combined_full_text = get_document_full_text(segments)
-
-            document = {
-                "file_name": file_name,
-                "file_type": "pdf",
-                "upload_date": datetime.utcnow(),
-                "full_text": combined_full_text
-            }
-            result = collection.insert_one(document)
-
-            return Response({
-                "file_name": file_name,
-                "document_id": str(result.inserted_id),
-                "full_text": combined_full_text
-            }, status=status.HTTP_201_CREATED)
-
-        elif file_extension in ['xls', 'xlsx']:
-            # Handle Excel file
-            csv_data = convert_excel_to_csv(file)
-            if not csv_data:
-                return Response({"error": "Error processing Excel file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            document = {
-                "file_name": file_name,
-                "file_type": "excel",
-                "upload_date": datetime.utcnow(),
-                "csv_data": csv_data
-            }
-            result = collection.insert_one(document)
-
-            return Response({
-                "file_name": file_name,
-                "document_id": str(result.inserted_id),
-                "csv_data": csv_data
-            }, status=status.HTTP_201_CREATED)
-
-        else:
-            return Response({"error": "Unsupported file type."}, status=status.HTTP_400_BAD_REQUEST)
-
-
-### API View: Ask Question Using Document Content
-
-class AskQuestionAPI(APIView):
-    """API to answer questions based on document content (PDF or Excel) stored in MongoDB."""
-
-    def post(self, request):
-        question = request.data.get('question')
-        document_id = request.data.get('document_id')
-
-        if not question or not document_id:
-            return Response({"error": "Both 'question' and 'document_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Retrieve the document from MongoDB
-        document = collection.find_one({"_id": ObjectId(document_id)})
-        if not document:
-            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        file_type = document.get("file_type")
-
-        if file_type == "pdf":
-            # Use full text for answering PDF questions
-            full_text = document.get("full_text", "")
-            if not full_text:
-                return Response({"error": "No full text available for this document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            answer = ask_question_with_full_text(question, full_text)
-            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
-
-        elif file_type == "excel":
-            # Use CSV data for answering Excel questions
-            csv_data = document.get("csv_data", "")
-            if not csv_data:
-                return Response({"error": "No CSV data available for this document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            answer = ask_question_with_csv_data(question, csv_data)
-            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
-
-        else:
-            return Response({"error": "Unsupported document type."}, status=status.HTTP_400_BAD_REQUEST)
