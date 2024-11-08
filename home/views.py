@@ -150,6 +150,33 @@ class UploadDocumentAPI(APIView):
 
 ### API View: Ask Question Using Document Content with Summary-Based Approach
 
+def search_csv_chunks_for_answer(question, csv_chunks):
+    """Directly search each CSV chunk for the answer to the question."""
+    for chunk in csv_chunks:
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Answer the question based on the following CSV data."},
+                    {"role": "user", "content": f"{question} Based on this data:\n{chunk}"}
+                ],
+                max_tokens=500,
+                temperature=0.5
+            )
+            answer = response.choices[0].message['content'].strip()
+            # Check if the response is relevant or not generic
+            if "no specific details" not in answer.lower():
+                return answer
+        except openai.error.OpenAIError as e:
+            logger.error(f"Error searching CSV data chunk: {e}")
+            return "Error: Unable to search the data."
+    
+    # Default response if no answer is found
+    return "The specific details could not be found in the provided CSV data."
+
+
+### API View: Ask Question Using Document Content without Summarization
+
 class AskQuestionAPI(APIView):
     """API to answer questions based on document content (PDF or Excel) stored in MongoDB."""
 
@@ -177,20 +204,18 @@ class AskQuestionAPI(APIView):
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
         elif file_type == "excel":
-            # Summarize CSV data chunks for Excel questions
+            # Directly search each CSV chunk for the answer to the question
             csv_chunks = document.get("csv_chunks", [])
             if not csv_chunks:
                 return Response({"error": "No CSV data available for this document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # Step 1: Summarize each chunk and combine
-            combined_summary = summarize_csv_chunks(csv_chunks)
-
-            # Step 2: Answer the question based on the combined summary
-            answer = answer_question_from_summary(question, combined_summary)
+            # Search each chunk directly for an answer
+            answer = search_csv_chunks_for_answer(question, csv_chunks)
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
         else:
             return Response({"error": "Unsupported document type."}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 ### Helper Function: Splitting PDF into Segments
