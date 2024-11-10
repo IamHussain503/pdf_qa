@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 ### Helper Function: Splitting PDF into Segments
 
-def split_pdf_into_segments(pdf_file, segment_size=40):
+def split_pdf_into_segments(pdf_file, segment_size=5):
     """Splits a PDF file into segments of `segment_size` pages each."""
     segments = []
     pdf_reader = PdfReader(pdf_file)
