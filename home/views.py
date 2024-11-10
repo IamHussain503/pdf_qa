@@ -10,16 +10,15 @@ from rest_framework import status
 from bson import ObjectId
 from PyPDF2 import PdfReader, PdfWriter
 
-# Setup logging and API clients
 logger = logging.getLogger(__name__)
+
+# Initialize MongoDB and OpenAI clients
 client = MongoClient(os.getenv("MONGODB_URL"))
 db = client.students
 collection = db['summarized_documents']
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-
 ### Helper Function: Splitting PDF into Segments
-
 def split_pdf_into_segments(pdf_file, segment_size=5):
     """Splits a PDF file into segments of `segment_size` pages each."""
     segments = []
@@ -39,66 +38,59 @@ def split_pdf_into_segments(pdf_file, segment_size=5):
 
     return segments
 
-### Helper Function: Summarize Each Segment
-
-def summarize_segment(segment_content):
-    """Generate a summary of a single segment using OpenAI's API."""
+### Helper Function: Generate Summary for Each Segment
+def summarize_segment(segment_text):
+    """Generate a summary for a single segment using OpenAI API."""
+    prompt = f"Summarize the following text:\n\n{segment_text[:1500]}"
     try:
         response = openai.Completion.create(
-            model="text-davinci-003",
-            prompt=f"Summarize the following text:\n\n{segment_content}",
-            max_tokens=100,
-            temperature=0.7
+            model="gpt-3.5-turbo",
+            prompt=prompt,
+            max_tokens=150
         )
         summary = response.choices[0].text.strip()
         return summary
-    except openai.error.OpenAIError as e:
+    except Exception as e:
         logger.error(f"Error summarizing segment: {e}")
-        return "Error: Unable to summarize segment."
+        return None
 
-### Helper Function: Generate Combined Summary
-
-def get_document_summary(document_id, segments):
-    """Summarize each segment and combine them into a single summary."""
+### Helper Function: Combine Summaries into a Single Summary
+def get_document_summary(segments):
+    """Generate a summary for each document segment and combine into a single summary."""
     summaries = []
     for i, segment in enumerate(segments):
         try:
-            segment_text = PdfReader(segment).pages[0].extract_text()
+            segment_text = segment.read().decode("utf-8")  # Decoding PDF segment to text
             summary = summarize_segment(segment_text)
             if summary:
                 summaries.append(summary)
-                # Store individual segment summary in MongoDB
-                collection.update_one({"_id": ObjectId(document_id)}, {"$push": {"segment_summaries": summary}})
+                logger.info(f"Summary for segment {i}: {summary[:100]}")  # Log first 100 chars
+            else:
+                logger.warning(f"No summary returned for segment {i}.")
         except Exception as e:
-            logger.error(f"Error summarizing segment {i}: {e}")
+            logger.error(f"Error generating summary for segment {i}: {e}")
 
-    # Combine individual summaries into a comprehensive summary
     combined_summary = " ".join(summaries)
-    collection.update_one({"_id": ObjectId(document_id)}, {"$set": {"summary": combined_summary}})
     return combined_summary
 
-
-### Helper Function: Answer Questions Based on Summary
-
+### Helper Function: Ask Question Using Combined Summary
 def ask_question_with_summary(question, combined_summary):
-    """Answer a question using the combined summary."""
-    modified_question = f"{question} Based on the following summary: {combined_summary}"
+    """Use the combined summary to answer the question."""
+    prompt = f"{question}\n\nBased on the following summary: {combined_summary}"
     try:
         response = openai.Completion.create(
-            model="text-davinci-003",
-            prompt=modified_question,
-            max_tokens=100,
-            temperature=0.5
+            model="gpt-3.5-turbo",
+            prompt=prompt,
+            max_tokens=100
         )
         return response.choices[0].text.strip()
     except openai.error.OpenAIError as e:
-        logger.error(f"Error answering question: {e}")
-        return "Error: Unable to answer the question."
+        logger.error(f"Error during question processing: {e}")
+        return {"error": "Internal Server Error. Check logs for details."}
 
 ### API View: Upload Document, Segment, and Summarize
-
 class UploadDocumentAPI(APIView):
-    """API to upload a PDF document, segment it, summarize each segment, and store metadata in MongoDB."""
+    """API to upload a PDF document, segment it, and summarize each part."""
 
     def post(self, request):
         if 'pdf_file' not in request.FILES:
@@ -110,29 +102,27 @@ class UploadDocumentAPI(APIView):
         # Step 1: Split the PDF into segments
         segments = split_pdf_into_segments(pdf_file)
 
-        # Step 2: Insert document metadata in MongoDB without summaries
+        # Step 2: Generate a combined summary from all segments
+        combined_summary = get_document_summary(segments)
+
+        # Step 3: Store metadata in MongoDB
         document = {
             "file_name": file_name,
             "upload_date": datetime.utcnow(),
-            "segment_summaries": [],
-            "summary": ""  # Placeholder for the combined summary
+            "summary": combined_summary
         }
         result = collection.insert_one(document)
 
-        # Step 3: Generate summaries for each segment and combine them
-        combined_summary = get_document_summary(result.inserted_id, segments)
-
-        # Step 4: Return response with MongoDB document ID
+        # Return response with MongoDB document ID
         return Response({
             "file_name": file_name,
             "document_id": str(result.inserted_id),
             "summary": combined_summary
         }, status=status.HTTP_201_CREATED)
 
-### API View: Answer Question Using Document Summary
-
+### API View: Ask Question
 class AskQuestionAPI(APIView):
-    """API to answer questions using the combined summary stored in MongoDB."""
+    """API to answer questions based on the combined summary."""
 
     def post(self, request):
         question = request.data.get('question')
@@ -141,15 +131,20 @@ class AskQuestionAPI(APIView):
         if not question or not document_id:
             return Response({"error": "Both 'question' and 'document_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Retrieve the document and its summary
-        document = collection.find_one({"_id": ObjectId(document_id)})
-        if not document:
-            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        combined_summary = document.get("summary", "")
-        if not combined_summary:
-            return Response({"error": "No summary available for this document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Retrieve the document metadata
+        try:
+            document = collection.find_one({"_id": ObjectId(document_id)})
+            if not document:
+                return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+            combined_summary = document["summary"]
+        except Exception as e:
+            logger.error(f"Error retrieving document from MongoDB: {e}")
+            return Response({"error": "Error retrieving document from database."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Answer the question based on the summary
-        answer = ask_question_with_summary(question, combined_summary)
-        return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+        try:
+            answer = ask_question_with_summary(question, combined_summary)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error during question processing for document ID {document_id}: {e}")
+            return Response({"error": "Error during question processing."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
