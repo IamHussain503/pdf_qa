@@ -22,7 +22,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 ### Helper Function: Splitting PDF into Segments
 
-def split_pdf_into_segments(pdf_file, segment_size=5):
+def split_pdf_into_segments(pdf_file, segment_size=40):
     """Splits a PDF file into segments of `segment_size` pages each."""
     segments = []
     pdf_reader = PdfReader(pdf_file)
@@ -45,18 +45,15 @@ def split_pdf_into_segments(pdf_file, segment_size=5):
 ### Helper Function: Summarize Each Segment
 
 def summarize_segment(segment_content):
-    """Generate a summary of a single segment using OpenAI's ChatCompletion API."""
+    """Generate a summary of a single segment using OpenAI's API."""
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that summarizes text."},
-                {"role": "user", "content": f"Summarize the following text:\n\n{segment_content}"}
-            ],
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=f"Summarize the following text:\n\n{segment_content}",
             max_tokens=100,
             temperature=0.7
         )
-        summary = response.choices[0].message['content'].strip()
+        summary = response.choices[0].text.strip()
         return summary
     except openai.error.OpenAIError as e:
         logger.error(f"Error summarizing segment: {e}")
@@ -89,18 +86,15 @@ def get_document_summary(document_id, segments):
 
 def ask_question_with_summary(question, combined_summary):
     """Answer a question using the combined summary."""
+    modified_question = f"{question} Based on the following summary: {combined_summary}"
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that answers questions based on a summary."},
-                {"role": "user", "content": f"{question} Based on the following summary: {combined_summary}"}
-            ],
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=modified_question,
             max_tokens=100,
             temperature=0.5
         )
-        answer = response.choices[0].message['content'].strip()
-        return answer
+        return response.choices[0].text.strip()
     except openai.error.OpenAIError as e:
         logger.error(f"Error answering question: {e}")
         return "Error: Unable to answer the question."
