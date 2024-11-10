@@ -26,20 +26,18 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 def convert_excel_to_csv(excel_file):
     """Convert Excel file to CSV format and return as a string."""
     try:
-        # Attempt to read the Excel file using pandas
-        df = pd.read_excel(excel_file, engine="xlrd" if excel_file.name.endswith('.xls') else "openpyxl")
+        # Attempt to read the Excel file
+        df = pd.read_excel(excel_file)
         logger.info("Excel file read successfully.")
         
-        # Convert DataFrame to CSV format as a string
+        # Convert DataFrame to CSV string
         csv_buffer = StringIO()
         df.to_csv(csv_buffer, index=False)
         csv_data = csv_buffer.getvalue()
         
         return csv_data
-    except ValueError as e:
-        logger.error(f"ValueError in converting Excel to CSV: {e}")
-        return None
     except Exception as e:
+        # Log detailed error message
         logger.error(f"Error converting Excel to CSV: {e}")
         return None
 
