@@ -254,96 +254,58 @@ class RetrieveDocumentsAPI(APIView):
 
 ### API View: Ask Question and Generate Summary if Needed
 
-import openai
-import pinecone  # Import the Pinecone client
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from bson import ObjectId
-from datetime import datetime
-import os
-import logging
-from io import BytesIO
-from PyPDF2 import PdfReader, PdfWriter
-
-logger = logging.getLogger(__name__)
-
-# Initialize OpenAI API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Initialize Pinecone
-pinecone.init(api_key=os.getenv("PINECONE_API_KEY"), environment="us-west1-gcp")  # Adjust environment if needed
-index_name = "document-segments"
-if index_name not in pinecone.list_indexes():
-    pinecone.create_index(index_name, dimension=1536)  # Dimension for OpenAI's embeddings
-index = pinecone.Index(index_name)
-
-class UploadDocumentAPI(APIView):
-    """API to upload a PDF document, segment it, create embeddings for each segment, and generate summaries."""
+class AskQuestionAPI(APIView):
+    """API to answer questions using the vector store or the combined summary if available."""
 
     def post(self, request):
+        question = request.data.get('question')
+        document_id = request.data.get('document_id')
+
+        if not question or not document_id:
+            logger.error("Both 'question' and 'document_id' are required.")
+            return Response({"error": "Both 'question' and 'document_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Retrieve the document metadata
         try:
-            if 'pdf_file' not in request.FILES:
-                logger.error("No PDF file uploaded in the request.")
-                return Response({"error": "No PDF file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+            document = collection.find_one({"_id": ObjectId(document_id)})
+        except Exception as e:
+            logger.error(f"Error retrieving document from MongoDB: {e}")
+            return Response({"error": "Error retrieving document from database."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            pdf_file = request.FILES['pdf_file']
-            file_name = pdf_file.name
+        if not document:
+            logger.error("Document not found.")
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 
-            # Step 1: Split the PDF into segments
-            try:
-                segments = split_pdf_into_segments(pdf_file)
-            except Exception as e:
-                logger.error(f"Error splitting PDF: {e}")
-                return Response({"error": "Error processing PDF file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Generate or retrieve the combined summary
+        try:
+            if "summary" not in document or not document["summary"]:
+                logger.info(f"No existing summary found for document ID {document_id}. Generating summary.")
 
-            # Step 2: Create embeddings for each segment and store in Pinecone
-            vector_store_ids = []
-            for i, segment in enumerate(segments):
-                segment_text = segment.read().decode('utf-8')  # Decode if needed
-                try:
-                    # Generate embedding for each segment
-                    embedding = openai.Embedding.create(
-                        model="text-embedding-ada-002",
-                        input=segment_text
-                    )['data'][0]['embedding']
+                # Generate the combined summary
+                broad_question = "Summarize this document section."
+                combined_summary = get_document_summary(document["vector_store_ids"], broad_question)
 
-                    # Store the embedding in Pinecone
-                    pinecone_id = f"{file_name}_segment_{i}"
-                    index.upsert([(pinecone_id, embedding)])
-                    vector_store_ids.append(pinecone_id)
-                except Exception as e:
-                    logger.error(f"Error creating embedding or storing segment {i}: {e}")
-                    return Response({"error": "Error creating embeddings for document segments."},
-                                    status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                # Check if the summary was successfully created
+                if combined_summary:
+                    # Update the document with the combined summary
+                    collection.update_one({"_id": ObjectId(document_id)}, {"$set": {"summary": combined_summary}})
+                    logger.info(f"Summary successfully generated and stored for document ID {document_id}.")
+                else:
+                    logger.error(f"Failed to generate summary for document ID {document_id}.")
+                    return Response({"error": "Failed to generate summary for document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # Step 3: Insert initial document metadata in MongoDB without summaries
-            try:
-                document = {
-                    "file_name": file_name,
-                    "vector_store_ids": vector_store_ids,
-                    "upload_date": datetime.utcnow(),
-                    "segment_summaries": [],  # Placeholder for individual segment summaries
-                    "summary": ""  # Placeholder for the combined summary
-                }
-                result = collection.insert_one(document)
-            except Exception as e:
-                logger.error(f"Error inserting document metadata into MongoDB: {e}")
-                return Response({"error": "Database insertion error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            # Step 4: Generate summaries for each segment and the combined summary
-            try:
-                get_document_summary(result.inserted_id, vector_store_ids)
-            except Exception as e:
-                logger.error(f"Error generating summaries for document segments: {e}")
-                return Response({"error": "Summary generation error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            return Response({
-                "file_name": file_name,
-                "vector_store_ids": vector_store_ids,
-                "document_id": str(result.inserted_id)
-            }, status=status.HTTP_201_CREATED)
+            else:
+                combined_summary = document["summary"]
+                logger.info(f"Using existing summary for document ID {document_id}.")
 
         except Exception as e:
-            logger.error(f"Unexpected error in UploadDocumentAPI: {e}")
-            return Response({"error": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Error during summary generation or storage for document ID {document_id}: {e}")
+            return Response({"error": "Error generating or storing summary."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Answer the question based on the summary
+        try:
+            answer = ask_question_with_summary(question, combined_summary)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error during question processing for document ID {document_id}: {e}")
+            return Response({"error": "Error during question processing."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
