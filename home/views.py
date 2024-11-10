@@ -44,8 +44,8 @@ def split_pdf_into_segments(pdf_file, segment_size=5):
 
 ### Helper Function: Generate Combined Summary
 
-def get_document_summary(document_id, vector_store_ids, broad_question="Summarize this document section."):
-    """Generate a summary for each document segment and store each summary in MongoDB."""
+def get_document_summary(vector_store_ids, broad_question="Summarize this document section."):
+    """Generate a summary for each document segment and combine into a single summary."""
     summaries = []
     for store_id in vector_store_ids:
         logger.info(f"Requesting summary for vector store ID: {store_id}")
@@ -54,12 +54,7 @@ def get_document_summary(document_id, vector_store_ids, broad_question="Summariz
             summary = ask_question_with_file_search(broad_question, store_id)
             if summary:
                 summaries.append(summary)
-                # Update the MongoDB document with each segment’s summary
-                collection.update_one(
-                    {"_id": ObjectId(document_id)},
-                    {"$push": {"segment_summaries": summary}}
-                )
-                logger.info(f"Stored summary for vector store ID {store_id}: {summary[:100]}")  # Log first 100 chars
+                logger.info(f"Received summary for vector store ID {store_id}: {summary[:100]}")  # Log first 100 chars
             else:
                 logger.warning(f"No summary returned for vector store ID {store_id}.")
         except Exception as e:
@@ -68,16 +63,10 @@ def get_document_summary(document_id, vector_store_ids, broad_question="Summariz
     # Combine individual summaries into a single comprehensive summary
     combined_summary = " ".join(summaries)
     if combined_summary:
-        # Store the combined summary in MongoDB
-        collection.update_one(
-            {"_id": ObjectId(document_id)},
-            {"$set": {"summary": combined_summary}}
-        )
-        logger.info("Combined summary created and stored successfully.")
+        logger.info("Combined summary created successfully.")
     else:
         logger.error("Combined summary is empty after all segments were processed.")
     return combined_summary
-
 
 
 
@@ -149,7 +138,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
 ### API View: Upload Document, Segment, and Create Vector Stores
 
 class UploadDocumentAPI(APIView):
-    """API to upload a PDF document, segment it, create vector stores for each segment, and generate summaries."""
+    """API to upload a PDF document, segment it, and create a vector store for each segment."""
 
     def post(self, request):
         if 'pdf_file' not in request.FILES:
@@ -172,21 +161,23 @@ class UploadDocumentAPI(APIView):
             )
             vector_store_ids.append(vector_store.id)
 
-        # Step 3: Insert document metadata in MongoDB without summaries
+        # Step 3: Store metadata in MongoDB
         document = {
             "file_name": file_name,
             "vector_store_ids": vector_store_ids,
             "upload_date": datetime.utcnow(),
-            "segment_summaries": [],  # Placeholder for individual segment summaries
-            "summary": ""  # Placeholder for the combined summary
+            "summary": ""  # Placeholder for the combined summary to be generated later
         }
         result = collection.insert_one(document)
+        
+        # Print all properties of the result
+        for attr in dir(result):
+            if not attr.startswith('_'):
+                print(f"{attr}: {getattr(result, attr)}")
 
-        # Step 4: Generate summaries for each segment and the combined summary
-        # This will update the MongoDB document with each segment's summary and the combined summary
-        get_document_summary(result.inserted_id, vector_store_ids)
+        
 
-        # Step 5: Return response with vector store IDs and MongoDB document ID
+        # Return response with vector store IDs and MongoDB document ID
         return Response({
             "file_name": file_name,
             "vector_store_ids": vector_store_ids,
