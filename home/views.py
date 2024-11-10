@@ -117,32 +117,6 @@ def ask_question_with_full_text(question, full_text):
         logger.error(f"Error answering question with full text: {e}")
         return "Error: Unable to answer the question."
 
-class RetrieveDocumentsAPI(APIView):
-    """API to retrieve all documents with their metadata."""
-
-    def get(self, request):
-        # Fetch all documents in the collection with relevant fields
-        documents = list(collection.find(
-            {},  # No filter to retrieve all documents
-            {"file_name": 1, "upload_date": 1, "file_type": 1, "_id": 1}
-        ))
-
-        # Format each document with its metadata
-        document_list = [
-            {
-                "document_id": str(doc["_id"]),
-                "file_name": doc.get("file_name", ""),
-                "upload_date": doc.get("upload_date", ""),
-                "file_type": doc.get("file_type", "")
-            }
-            for doc in documents
-        ]
-
-        return Response({"documents": document_list}, status=status.HTTP_200_OK)
-
-
-
-
 
 ### API View: Upload Document, Handle Excel/CSV, and Store in MongoDB
 
