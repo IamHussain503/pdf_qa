@@ -10,10 +10,8 @@ from rest_framework import status
 from bson import ObjectId
 from PyPDF2 import PdfReader, PdfWriter
 
-# Setup logging
+# Setup logging and API clients
 logger = logging.getLogger(__name__)
-
-# Initialize MongoDB and OpenAI clients
 client = MongoClient(os.getenv("MONGODB_URL"))
 db = client.students
 collection = db['summarized_documents']
@@ -22,7 +20,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 ### Helper Function: Splitting PDF into Segments
 
-def split_pdf_into_segments(pdf_file, segment_size=40):
+def split_pdf_into_segments(pdf_file, segment_size=5):
     """Splits a PDF file into segments of `segment_size` pages each."""
     segments = []
     pdf_reader = PdfReader(pdf_file)
@@ -41,7 +39,6 @@ def split_pdf_into_segments(pdf_file, segment_size=40):
 
     return segments
 
-
 ### Helper Function: Summarize Each Segment
 
 def summarize_segment(segment_content):
@@ -58,7 +55,6 @@ def summarize_segment(segment_content):
     except openai.error.OpenAIError as e:
         logger.error(f"Error summarizing segment: {e}")
         return "Error: Unable to summarize segment."
-
 
 ### Helper Function: Generate Combined Summary
 
@@ -99,7 +95,6 @@ def ask_question_with_summary(question, combined_summary):
         logger.error(f"Error answering question: {e}")
         return "Error: Unable to answer the question."
 
-
 ### API View: Upload Document, Segment, and Summarize
 
 class UploadDocumentAPI(APIView):
@@ -134,34 +129,7 @@ class UploadDocumentAPI(APIView):
             "summary": combined_summary
         }, status=status.HTTP_201_CREATED)
 
-
-### API View: Retrieve All Documents with Metadata
-
-class RetrieveDocumentsAPI(APIView):
-    """API to retrieve all documents with their metadata, including vector store IDs and summary status."""
-
-    def get(self, request):
-        # Fetch all documents in the collection with relevant fields
-        documents = list(collection.find(
-            {},  # No filter to retrieve all documents
-            {"file_name": 1, "upload_date": 1, "summary": 1, "_id": 1}
-        ))
-
-        # Format each document with its metadata
-        document_list = [
-            {
-                "document_id": str(doc["_id"]),
-                "file_name": doc.get("file_name", ""),
-                "upload_date": doc.get("upload_date", ""),
-                "has_summary": bool(doc.get("summary"))  # True if summary exists, False otherwise
-            }
-            for doc in documents
-        ]
-
-        return Response({"documents": document_list}, status=status.HTTP_200_OK)
-
-
-### API View: Ask Question Using Document Summary
+### API View: Answer Question Using Document Summary
 
 class AskQuestionAPI(APIView):
     """API to answer questions using the combined summary stored in MongoDB."""
