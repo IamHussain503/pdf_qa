@@ -33,24 +33,29 @@ def get_embedding(text):
 def upload_file_and_create_vector_store(pdf_files):
     vector_store_data = []
     for pdf_file in pdf_files:
-        # Extract text from PDF
-        text_content = extract_text_from_pdf(pdf_file)
+        try:
+            # Extract text from PDF
+            text_content = extract_text_from_pdf(pdf_file)
+            
+            # Generate embeddings for document text
+            embeddings = get_embedding(text_content)
+            
+            # Store the embeddings in MongoDB
+            document = {
+                "file_name": pdf_file.name,
+                "content": text_content,
+                "embedding": embeddings,
+                "upload_date": datetime.utcnow(),
+                "file_type": "pdf"
+            }
+            collection.insert_one(document)
+            vector_store_data.append(document)
         
-        # Generate embeddings for document text
-        embeddings = get_embedding(text_content)
-        
-        # Store the embeddings in MongoDB
-        document = {
-            "file_name": pdf_file.name,
-            "content": text_content,
-            "embedding": embeddings,
-            "upload_date": datetime.utcnow(),
-            "file_type": "pdf"
-        }
-        collection.insert_one(document)
-        vector_store_data.append(document)
-
+        except Exception as e:
+            logger.error(f"Error processing file {pdf_file.name}: {e}")
+            return {"error": f"Failed to process {pdf_file.name}"}
     return vector_store_data
+
 
 # Function to extract text from PDF
 def extract_text_from_pdf(pdf_file):
@@ -98,13 +103,11 @@ def ask_question(question):
 
 # Django API Views
 class UploadDocumentAPI(APIView):
-    """API to upload multiple PDF documents and create a vector store for them."""
-
     def post(self, request):
         if 'pdf_files' not in request.FILES:
             return Response({"error": "No PDF files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
-        pdf_files = request.FILES.getlist('pdf_files')  # Get multiple files
+        pdf_files = request.FILES.getlist('pdf_files')
         vector_store_data = upload_file_and_create_vector_store(pdf_files)
 
         file_names = [data["file_name"] for data in vector_store_data]
@@ -113,6 +116,7 @@ class UploadDocumentAPI(APIView):
             "file_names": file_names,
             "status": "Files uploaded successfully"
         }, status=status.HTTP_201_CREATED)
+
 
 class AskQuestionAPI(APIView):
     """API to answer questions using the vector store."""
