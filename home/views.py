@@ -12,8 +12,8 @@ from PyPDF2 import PdfReader, PdfWriter
 
 # Initialize MongoDB and OpenAI clients
 client = MongoClient(os.getenv("MONGODB_URL"))
-db = client.students
-collection = db['summarized_documents']
+db = client.Todo
+collection = db['home_uploadeddocuments']
 openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 logger = logging.getLogger(__name__)
