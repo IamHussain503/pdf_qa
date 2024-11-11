@@ -133,13 +133,7 @@ class UploadDocumentAPI(APIView):
             "summary": ""  # Placeholder for the combined summary to be generated later
         }
         result = collection.insert_one(document)
-        
-        # Print all properties of the result
-        for attr in dir(result):
-            if not attr.startswith('_'):
-                print(f"{attr}: {getattr(result, attr)}")
-
-        
+        print(result)
 
         # Return response with vector store IDs and MongoDB document ID
         return Response({
