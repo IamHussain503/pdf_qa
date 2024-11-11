@@ -375,12 +375,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 def ask_question(question, file_name=None):
+    # Logging to verify the function is called and the input received
     print("Function `ask_question` called.")
     print(f"Received question: '{question}'")
     if file_name:
         print(f"Filtering by file_name: '{file_name}'")
 
-    # Check for documents in the database
+    # Retrieve relevant documents from MongoDB
     if file_name:
         documents = list(collection.find({"file_name": file_name}, {"data_text": 1, "embedding": 1}))
         print(f"Documents found for file '{file_name}': {len(documents)}")
@@ -388,19 +389,29 @@ def ask_question(question, file_name=None):
         documents = list(collection.find({}, {"data_text": 1, "embedding": 1}))
         print(f"Total documents found: {len(documents)}")
     
+    # Handle case with no documents found
     if not documents:
         print("No documents found for specified file or in database.")
-        return "No documents found for specified file."
+        return {"question": question, "answer": "No documents found for the specified file."}
 
-    # Prepare OpenAI API call
+    # Process the question to determine intent
+    if "total order count" in question.lower() or "total orders" in question.lower():
+        order_count = len(documents)
+        formatted_answer = f"The number of total orders: {order_count}"
+        print(formatted_answer)
+        return {"question": question, "answer": formatted_answer}
+
+    # Simulate OpenAI API call for questions without specific parsing
     print("Preparing to call OpenAI API with question context.")
     try:
+        # Replace with an actual call to OpenAI if desired
         response = "Simulated OpenAI response based on context"
         print(f"Response from OpenAI API: {response}")
-        return response
+        return {"question": question, "answer": response}
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
-        return "Error processing the question."
+        return {"question": question, "answer": "Error processing the question."}
+
 
 
 
