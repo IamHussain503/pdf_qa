@@ -235,12 +235,20 @@ def extract_text_from_pdf(pdf_file):
 # Function to process and store data from an XLSX file
 def process_and_store_xlsx(xlsx_file):
     df = pd.read_excel(xlsx_file)
+    
+    # Check if the file has any columns
+    if df.empty or df.columns.empty:
+        logger.error("The uploaded XLSX file has no columns.")
+        raise ValueError("The uploaded XLSX file is empty or has no columns.")
+
     for _, row in df.iterrows():
-        # Customize this to select and combine relevant columns for embedding
-        data_text = f"Order: {row['order']}, Time: {row['time']}, Amount: {row['amount']}, Status: {row['status']}"
+        # Create a dynamic text summary using all columns
+        data_text = ", ".join([f"{col}: {row[col]}" for col in df.columns if pd.notna(row[col])])
+
+        # Generate embedding for the row data
         embedding = get_embedding(data_text)
 
-        # Store in MongoDB with the original data
+        # Store the row data and embedding in MongoDB
         document = {
             "data_text": data_text,
             "embedding": embedding,
@@ -251,6 +259,7 @@ def process_and_store_xlsx(xlsx_file):
         collection.insert_one(document)
 
     print("XLSX data processed and stored successfully.")
+
 
 # Function to process and store data from a PDF file
 def process_and_store_pdf(pdf_file):
