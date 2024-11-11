@@ -47,22 +47,13 @@ def get_document_summary(vector_store_ids, broad_question="Summarize this docume
     for store_id in vector_store_ids:
         try:
             summary = ask_question_with_file_search(broad_question, store_id)
-            if summary:
-                summaries.append(summary)
-                logger.info(f"Summary generated for vector store ID {store_id}.")
-            else:
-                logger.warning(f"No summary returned for vector store ID {store_id}.")
+            summaries.append(summary)
         except Exception as e:
             logger.error(f"Error generating summary for vector store ID {store_id}: {e}")
 
     # Combine individual summaries into a single comprehensive summary
     combined_summary = " ".join(summaries)
-    if combined_summary:
-        logger.info("Combined summary created successfully.")
-    else:
-        logger.error("Combined summary is empty.")
     return combined_summary
-
 
 
 ### Helper Function: Ask Question Using Summary
@@ -173,7 +164,7 @@ class AskQuestionAPI(APIView):
 
     def post(self, request):
         question = request.data.get('question')
-        document_id = request.data.get('document_id')
+        document_id = request.data.get('document_id')  # Using document ID to identify the document
 
         if not question or not document_id:
             logger.error("Both 'question' and 'document_id' are required.")
@@ -190,37 +181,31 @@ class AskQuestionAPI(APIView):
             logger.error("Document not found.")
             return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Generate or retrieve the combined summary
+        # Check if a combined summary already exists
         try:
             if "summary" not in document or not document["summary"]:
-                logger.info(f"No existing summary found for document ID {document_id}. Generating summary.")
-                
-                # Attempt to generate a summary for each segment
+                logger.info("Generating summary for document.")
                 broad_question = "Summarize this document section."
+                
+                # Generate the combined summary
                 combined_summary = get_document_summary(document["vector_store_ids"], broad_question)
-
-                # Check if the summary was successfully created
-                if combined_summary:
-                    # Update the document with the combined summary
-                    collection.update_one({"_id": ObjectId(document_id)}, {"$set": {"summary": combined_summary}})
-                    logger.info(f"Summary successfully generated and stored for document ID {document_id}.")
-                else:
-                    logger.error(f"Failed to generate summary for document ID {document_id}.")
-                    return Response({"error": "Failed to generate summary for document."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+                
+                # Update the document with the combined summary
+                collection.update_one({"_id": ObjectId(document_id)}, {"$set": {"summary": combined_summary}})
+                logger.info(f"Summary generated and updated for document ID: {document_id}")
             else:
                 combined_summary = document["summary"]
-                logger.info(f"Using existing summary for document ID {document_id}.")
+                logger.info(f"Using existing summary for document ID: {document_id}")
 
         except Exception as e:
-            logger.error(f"Error during summary generation or storage for document ID {document_id}: {e}")
+            logger.error(f"Error generating or storing summary: {e}")
             return Response({"error": "Error generating or storing summary."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Answer the question based on the summary
+        # Ask the specific question based on the combined summary
         try:
             answer = ask_question_with_summary(question, combined_summary)
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
         except Exception as e:
-            logger.error(f"Error during question processing for document ID {document_id}: {e}")
+            logger.error(f"Error during question processing: {e}")
             return Response({"error": "Error during question processing."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
