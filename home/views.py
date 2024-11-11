@@ -67,56 +67,13 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
     return vector_store
 
 
-# def ask_question_with_file_search(question: str, vector_store_id: str):
-#     """Ask a question using the vector store and get a streaming response."""
-#     try:
-#         # Add a phrase to the question before sending
-#         modified_question = f"{question} Please do not send any relevant links in the answer as well as remove any unwanted characters from the answer."
-
-#         # Create a thread with the modified question and reference the vector store
-#         thread = openai_client.beta.threads.create(
-#             messages=[{"role": "user", "content": modified_question}],
-#             tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
-#         )
-
-#         # Use the event handler to stream the response
-#         event_handler = EventHandler()
-#         print(f"Question '{modified_question}' is being asked with vector store ID '{vector_store_id}'...")
-
-#         # Handle the stream using OpenAI's internal stream management
-#         with openai_client.beta.threads.runs.stream(
-#             thread_id=thread.id,
-#             assistant_id=assistant.id,
-#             instructions="Please address the user as Jane Doe. The user has a premium account.",
-#             event_handler=event_handler,
-#         ) as stream:
-#             stream.until_done()  # Wait for the stream to finish
-
-#         # Return the final streamed response
-#         return event_handler.response
-
-#     except OpenAIError as e:
-#         error_message = str(e)
-#         if "404" in error_message and "not found" in error_message:
-#             print(f"Vector store with ID '{vector_store_id}' not found in OpenAI. Deleting from MongoDB.")
-            
-#             # Delete the document from MongoDB
-#             collection.delete_one({"vector_store_id": vector_store_id})
-#             print(f"Vector store ID '{vector_store_id}' deleted from MongoDB.")
-#             return {"error": "The vector store ID was not found and has been removed from the database."}
-        
-#         else:
-#             print(f"Error during question processing: {e}")
-#             raise e
-
-
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask a question using the vector store and get a streaming response."""
     try:
-        # Modify the question if necessary for clarity.
-        modified_question = f"{question} Please provide detailed responses based on the uploaded content."
+        # Add a phrase to the question before sending
+        modified_question = f"{question} Please do not send any relevant links in the answer as well as remove any unwanted characters from the answer."
 
-        # Create a thread with the question and reference the vector store
+        # Create a thread with the modified question and reference the vector store
         thread = openai_client.beta.threads.create(
             messages=[{"role": "user", "content": modified_question}],
             tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}}
@@ -126,30 +83,31 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         event_handler = EventHandler()
         print(f"Question '{modified_question}' is being asked with vector store ID '{vector_store_id}'...")
 
-        # Stream the response and log it
+        # Handle the stream using OpenAI's internal stream management
         with openai_client.beta.threads.runs.stream(
             thread_id=thread.id,
             assistant_id=assistant.id,
-            instructions="Answer questions based on all uploaded documents. Avoid irrelevant information.",
+            instructions="Please address the user as Jane Doe. The user has a premium account.",
             event_handler=event_handler,
         ) as stream:
             stream.until_done()  # Wait for the stream to finish
 
-        # Log the full response for debugging
-        logger.info(f"Full response: {event_handler.response}")
+        # Return the final streamed response
         return event_handler.response
 
     except OpenAIError as e:
         error_message = str(e)
         if "404" in error_message and "not found" in error_message:
-            logger.error(f"Vector store with ID '{vector_store_id}' not found. Deleting from MongoDB.")
+            print(f"Vector store with ID '{vector_store_id}' not found in OpenAI. Deleting from MongoDB.")
+            
+            # Delete the document from MongoDB
             collection.delete_one({"vector_store_id": vector_store_id})
+            print(f"Vector store ID '{vector_store_id}' deleted from MongoDB.")
             return {"error": "The vector store ID was not found and has been removed from the database."}
         
         else:
-            logger.error(f"Error during question processing: {e}")
+            print(f"Error during question processing: {e}")
             raise e
-
 
 
 
