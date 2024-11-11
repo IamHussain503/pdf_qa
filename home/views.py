@@ -4,6 +4,8 @@ import logging
 from io import BytesIO
 from datetime import datetime
 from pymongo import MongoClient
+from django.shortcuts import render, redirect
+from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -130,31 +132,6 @@ class UploadDocumentAPI(APIView):
             "vector_store_ids": vector_store_ids,
             "document_id": str(result.inserted_id)
         }, status=status.HTTP_201_CREATED)
-
-### API View: Retrieve All Documents with Metadata
-
-class RetrieveDocumentsAPI(APIView):
-    """API to retrieve all principal document names with their vector store IDs and summary status."""
-
-    def get(self, request):
-        # Fetch all documents in the collection with relevant fields
-        documents = list(collection.find(
-            {},  # No filter to retrieve all documents
-            {"file_name": 1, "vector_store_ids": 1, "summary": 1, "_id": 1}
-        ))
-
-        # Format each document with its metadata
-        document_list = [
-            {
-                "document_id": str(doc["_id"]),
-                "file_name": doc["file_name"],
-                "vector_store_ids": doc.get("vector_store_ids", []),
-                "has_summary": bool(doc.get("summary"))  # True if summary exists, False otherwise
-            }
-            for doc in documents
-        ]
-        
-        return Response({"documents": document_list}, status=status.HTTP_200_OK)
 
 ### API View: Ask Question and Generate Summary if Needed
 
