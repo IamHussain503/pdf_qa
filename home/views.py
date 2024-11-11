@@ -133,7 +133,6 @@ class UploadDocumentAPI(APIView):
             "summary": ""  # Placeholder for the combined summary to be generated later
         }
         result = collection.insert_one(document)
-        print(result)
 
         # Return response with vector store IDs and MongoDB document ID
         return Response({
