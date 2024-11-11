@@ -11,7 +11,6 @@ from rest_framework import status
 from bson import ObjectId
 from PyPDF2 import PdfReader, PdfWriter
 
-logger = logging.getLogger(__name__)
 
 # Initialize MongoDB and OpenAI clients
 client = MongoClient(os.getenv("MONGODB_URL"))
@@ -89,7 +88,7 @@ def ask_question_with_summary(question, combined_summary):
         logger.error(f"Error during question processing: {e}")
         return {"error": "Internal Server Error. Check logs for details."}
 
-
+### Function to Handle Segment-based Question Answering
 
 def ask_question_with_file_search(question: str, vector_store_id: str):
     """Ask OpenAI for a summary of a document segment using the vector store."""
@@ -97,7 +96,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         # Modify the question for clearer instruction
         modified_question = f"{question} Please summarize the content relevant to this vector store ID."
 
-        # Send a request to OpenAI with the vector store reference, using gpt-4-turbo model
+        # Send a request to OpenAI with the vector store reference
         logger.info(f"Sending request to OpenAI for vector store ID {vector_store_id} with question: {modified_question}")
         response = openai.Completion.create(
             model="gpt-4-turbo",  # or "gpt-4o" depending on your setup
@@ -111,10 +110,9 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         
         return summary
 
-    except openai.OpenAIError as e:  # Use openai.OpenAIError directly
+    except OpenAIError as e:  # Use OpenAIError directly
         logger.error(f"Error during summary generation for vector store ID {vector_store_id}: {e}")
         return ""
-
 
 
 ### API View: Upload Document, Segment, and Create Vector Stores
