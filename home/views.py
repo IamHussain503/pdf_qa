@@ -91,15 +91,22 @@ def ask_question(question):
     top_docs = find_similar_documents(question)
     context = "\n\n".join([doc["content"] for doc in top_docs])
 
-    # Create a prompt with the question and the relevant document context
-    prompt = f"Answer the following question using the provided context:\n\n{context}\n\nQuestion: {question}\nAnswer:"
+    # Prepare the chat prompt for gpt-4o
+    messages = [
+        {"role": "system", "content": "You are an assistant that answers questions based on provided documents."},
+        {"role": "user", "content": f"Here is some context:\n\n{context}\n\nNow, answer the following question:\n{question}"}
+    ]
     
-    response = openai.Completion.create(
+    # Call the chat completion endpoint
+    response = openai.ChatCompletion.create(
         model="gpt-4o",
-        prompt=prompt,
+        messages=messages,
         max_tokens=500
     )
-    return response.choices[0].text.strip()
+    
+    # Return the assistant's reply
+    return response['choices'][0]['message']['content'].strip()
+
 
 # Django API Views
 class UploadDocumentAPI(APIView):
