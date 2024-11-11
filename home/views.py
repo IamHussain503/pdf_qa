@@ -208,6 +208,7 @@ from PyPDF2 import PdfReader
 
 # Setup logging
 logger = logging.getLogger(__name__)
+logger.info("Django logging configuration test: Server started.")
 
 # MongoDB and OpenAI setup
 client = MongoClient(os.getenv("MONGODB_URL"))
@@ -374,7 +375,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def ask_question(question, file_name=None):
-    logger.info("Function `ask_question` called.")
+    logger.info("ask_question function called")
     logger.info(f"Received question: '{question}'")
     if file_name:
         logger.info(f"Filtering by file_name: '{file_name}'")
@@ -391,10 +392,9 @@ def ask_question(question, file_name=None):
         logger.info("No documents found for specified file or in database.")
         return "No documents found for specified file."
 
-    # Prepare OpenAI API call
+    # Simulated OpenAI API call
     logger.info("Preparing to call OpenAI API with question context.")
     try:
-        # Replace with actual OpenAI API call and response handling
         response = "Simulated OpenAI response based on context"
         logger.info(f"Response from OpenAI API: {response}")
         return response
