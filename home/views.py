@@ -375,46 +375,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 def ask_question(question, file_name=None):
-    print("Function `ask_question` called.")
-    print(f"Received question: '{question}'")
-    if file_name:
-        print(f"Filtering by file_name: '{file_name}'")
+    # Embed the question
+    question_embedding = get_embedding(question)
+    
+    # Search for top-matching data chunks in the vector database
+    query = {"file_name": file_name} if file_name else {}
+    documents = list(collection.find(query, {"data_text": 1, "embedding": 1, "metadata": 1}))
+    documents_with_similarity = [
+        (doc, cosine_similarity(question_embedding, doc['embedding'])) for doc in documents
+    ]
+    documents_with_similarity.sort(key=lambda x: x[1], reverse=True)
+    top_documents = [doc[0]['data_text'] for doc in documents_with_similarity[:3]]
 
-    # Retrieve relevant documents from MongoDB
-    if file_name:
-        documents = list(collection.find({"file_name": file_name}, {"data_text": 1, "embedding": 1, "row_data.Order Value($)": 1}))
-        print(f"Documents found for file '{file_name}': {len(documents)}")
-    else:
-        documents = list(collection.find({}, {"data_text": 1, "embedding": 1, "row_data.Order Value($)": 1}))
-        print(f"Total documents found: {len(documents)}")
+    # Dynamically construct the prompt
+    context = "\n\n".join(top_documents)
+    prompt = f"Using the following context, answer the question accurately:\n\n{context}\n\nQuestion: {question}\nAnswer:"
 
-    # Handle case with no documents found
-    if not documents:
-        print("No documents found for specified file or in database.")
-        return {"question": question, "answer": "No documents found for the specified file."}
+    # Pass the prompt to GPT-4
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=150
+    )
+    answer = response.choices[0].message['content'].strip()
 
-    # Detect specific questions and calculate answers
-    if "total order count" in question.lower() or "total orders" in question.lower():
-        order_count = len(documents)
-        formatted_answer = f"The number of total orders: {order_count}"
-        print(formatted_answer)
-        return {"question": question, "answer": formatted_answer}
-
-    elif "total price" in question.lower() or "total amount" in question.lower():
-        total_price = sum(doc.get("row_data", {}).get("Order Value($)", 0) for doc in documents if doc.get("row_data"))
-        formatted_answer = f"The total price of all orders: ${total_price:.2f}"
-        print(formatted_answer)
-        return {"question": question, "answer": formatted_answer}
-
-    # Fallback to OpenAI API for other questions
-    print("Preparing to call OpenAI API with question context.")
-    try:
-        response = "Simulated OpenAI response based on context"
-        print(f"Response from OpenAI API: {response}")
-        return {"question": question, "answer": response}
-    except Exception as e:
-        print(f"Error calling OpenAI API: {e}")
-        return {"question": question, "answer": "Error processing the question."}
+    return {"question": question, "answer": answer}
 
 
 
