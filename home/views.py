@@ -49,19 +49,19 @@ def get_document_summary(vector_store_ids, broad_question="Summarize this docume
             summary = ask_question_with_file_search(broad_question, store_id)
             if summary:
                 summaries.append(summary)
-                logger.info(f"Summary generated for vector store ID {store_id}: {summary[:100]}")  # Log the first 100 characters
+                logger.info(f"Summary generated for vector store ID {store_id}.")
             else:
                 logger.warning(f"No summary returned for vector store ID {store_id}.")
         except Exception as e:
             logger.error(f"Error generating summary for vector store ID {store_id}: {e}")
 
+    # Combine individual summaries into a single comprehensive summary
     combined_summary = " ".join(summaries)
     if combined_summary:
         logger.info("Combined summary created successfully.")
     else:
         logger.error("Combined summary is empty.")
     return combined_summary
-
 
 
 
@@ -201,8 +201,8 @@ class AskQuestionAPI(APIView):
         try:
             if "summary" not in document or not document["summary"]:
                 logger.info(f"No existing summary found for document ID {document_id}. Generating summary.")
-
-                # Generate the combined summary
+                
+                # Attempt to generate a summary for each segment
                 broad_question = "Summarize this document section."
                 combined_summary = get_document_summary(document["vector_store_ids"], broad_question)
 
@@ -230,3 +230,4 @@ class AskQuestionAPI(APIView):
         except Exception as e:
             logger.error(f"Error during question processing for document ID {document_id}: {e}")
             return Response({"error": "Error during question processing."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
