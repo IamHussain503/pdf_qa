@@ -1,7 +1,6 @@
 import os
 import openai
 import logging
-from openai.error import OpenAIError  # Import the error class directly
 from io import BytesIO
 from datetime import datetime
 from pymongo import MongoClient
@@ -10,7 +9,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from bson import ObjectId
 from PyPDF2 import PdfReader, PdfWriter
-
 
 # Initialize MongoDB and OpenAI clients
 client = MongoClient(os.getenv("MONGODB_URL"))
@@ -96,7 +94,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         # Modify the question for clearer instruction
         modified_question = f"{question} Please summarize the content relevant to this vector store ID."
 
-        # Send a request to OpenAI with the vector store reference
+        # Send a request to OpenAI with the vector store reference, using gpt-4-turbo model
         logger.info(f"Sending request to OpenAI for vector store ID {vector_store_id} with question: {modified_question}")
         response = openai.Completion.create(
             model="gpt-4-turbo",  # or "gpt-4o" depending on your setup
@@ -110,7 +108,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         
         return summary
 
-    except OpenAIError as e:  # Use OpenAIError directly
+    except openai.error.OpenAIError as e:
         logger.error(f"Error during summary generation for vector store ID {vector_store_id}: {e}")
         return ""
 
