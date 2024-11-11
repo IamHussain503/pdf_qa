@@ -101,7 +101,7 @@ def ask_question(question):
     response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=messages,
-        max_tokens=500
+        max_tokens=8192,
     )
     
     # Return the assistant's reply
