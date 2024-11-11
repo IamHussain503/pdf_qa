@@ -375,32 +375,33 @@ import logging
 logger = logging.getLogger(__name__)
 
 def ask_question(question, file_name=None):
-    logger.info("ask_question function called")
-    logger.info(f"Received question: '{question}'")
+    print("Function `ask_question` called.")
+    print(f"Received question: '{question}'")
     if file_name:
-        logger.info(f"Filtering by file_name: '{file_name}'")
+        print(f"Filtering by file_name: '{file_name}'")
 
-    # Check if documents exist in the database
+    # Check for documents in the database
     if file_name:
         documents = list(collection.find({"file_name": file_name}, {"data_text": 1, "embedding": 1}))
-        logger.info(f"Documents found for file '{file_name}': {len(documents)}")
+        print(f"Documents found for file '{file_name}': {len(documents)}")
     else:
         documents = list(collection.find({}, {"data_text": 1, "embedding": 1}))
-        logger.info(f"Total documents found: {len(documents)}")
+        print(f"Total documents found: {len(documents)}")
     
     if not documents:
-        logger.info("No documents found for specified file or in database.")
+        print("No documents found for specified file or in database.")
         return "No documents found for specified file."
 
-    # Simulated OpenAI API call
-    logger.info("Preparing to call OpenAI API with question context.")
+    # Prepare OpenAI API call
+    print("Preparing to call OpenAI API with question context.")
     try:
         response = "Simulated OpenAI response based on context"
-        logger.info(f"Response from OpenAI API: {response}")
+        print(f"Response from OpenAI API: {response}")
         return response
     except Exception as e:
-        logger.error(f"Error calling OpenAI API: {e}")
+        print(f"Error calling OpenAI API: {e}")
         return "Error processing the question."
+
 
 
 # Django API Views
