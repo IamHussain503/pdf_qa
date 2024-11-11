@@ -45,13 +45,12 @@ def get_document_summary(vector_store_ids, broad_question="Summarize this docume
     """Generate a summary for each document segment and combine into a single summary."""
     summaries = []
     for store_id in vector_store_ids:
-        logger.info(f"Requesting summary for vector store ID: {store_id}")
         try:
-            # Attempt to generate a summary for the current segment
+            # Query OpenAI for the summary of each segment
             summary = ask_question_with_file_search(broad_question, store_id)
             if summary:
                 summaries.append(summary)
-                logger.info(f"Received summary for vector store ID {store_id}: {summary[:100]}")  # Log first 100 chars
+                logger.info(f"Summary generated for vector store ID {store_id}: {summary[:100]}")  # Log the first 100 characters of the summary
             else:
                 logger.warning(f"No summary returned for vector store ID {store_id}.")
         except Exception as e:
@@ -62,7 +61,7 @@ def get_document_summary(vector_store_ids, broad_question="Summarize this docume
     if combined_summary:
         logger.info("Combined summary created successfully.")
     else:
-        logger.error("Combined summary is empty after all segments were processed.")
+        logger.error("Combined summary is empty.")
     return combined_summary
 
 
@@ -95,7 +94,6 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         modified_question = f"{question} Please summarize the content relevant to this vector store ID."
 
         # Send a request to OpenAI with the vector store reference, using gpt-4-turbo model
-        logger.info(f"Sending request to OpenAI for vector store ID {vector_store_id} with question: {modified_question}")
         response = openai.Completion.create(
             model="gpt-4-turbo",  # or "gpt-4o" depending on your setup
             prompt=modified_question,
@@ -104,13 +102,14 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         
         # Log the OpenAI response for debugging
         summary = response.choices[0].text.strip()
-        logger.info(f"OpenAI response for vector store ID {vector_store_id}: {summary[:100]}")  # Log first 100 chars
+        logger.info(f"OpenAI response for vector store ID {vector_store_id}: {summary[:100]}")
         
         return summary
 
     except openai.error.OpenAIError as e:
         logger.error(f"Error during summary generation for vector store ID {vector_store_id}: {e}")
-        return ""
+        return "Error generating summary."
+
 
 
 ### API View: Upload Document, Segment, and Create Vector Stores
