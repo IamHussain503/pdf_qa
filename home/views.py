@@ -107,12 +107,22 @@ class RetrieveDocumentAPI(APIView):
     """API to retrieve file_name and vector_store_id for all uploaded documents."""
 
     def get(self, request):
-        documents = list(collection.find({}, {"file_name": 1, "vector_store_id": 1, "_id": 1}))
-        documents_list = [
-            {"file_id": str(doc["_id"]), "file_name": doc["file_name"], "vector_store_id": doc["vector_store_id"]}
-            for doc in documents
-        ]
-        return JsonResponse(documents_list, safe=False)
+        try:
+            documents = list(collection.find({}, {"file_name": 1, "vector_store_id": 1, "_id": 1}))
+            documents_list = [
+                {
+                    "file_id": str(doc["_id"]),
+                    "file_name": doc.get("file_name", "Unknown"),
+                    "vector_store_id": doc.get("vector_store_id", "Unknown")
+                }
+                for doc in documents
+            ]
+            return JsonResponse(documents_list, safe=False)
+        except Exception as e:
+            # Log the error for debugging
+            logger.error(f"Error retrieving documents: {e}")
+            return Response({"error": "Failed to retrieve documents"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class AskQuestionAPI(APIView):
