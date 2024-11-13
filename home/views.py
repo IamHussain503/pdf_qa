@@ -308,67 +308,6 @@ def generate_query(intent, filter_term, file_name=None):
         aggregation.append({"$group": {"_id": "$row_data.Customer Name", "visit_count": {"$sum": 1}}})
     return aggregation
 
-def upload_pdf_page(request):
-    """Frontend view to upload PDF/XLSX files and ask questions."""
-    # Fetch all uploaded files from MongoDB
-    uploaded_files = list(collection.find({}, {'_id': 1, 'file_name': 1, 'upload_date': 1, 'file_type': 1}))
-    for file in uploaded_files:
-        file['file_id'] = str(file['_id'])  # Convert ObjectId to string for easier handling
-
-    answer = None
-    question = None
-    file_name = None
-
-    if request.method == 'POST':
-        if 'file' in request.FILES:
-            # Process file upload
-            files = request.FILES.getlist('file')
-            for uploaded_file in files:
-                try:
-                    # Identify file type and store accordingly
-                    file_extension = uploaded_file.name.split('.')[-1].lower()
-                    if file_extension == 'pdf':
-                        process_and_store_pdf(uploaded_file)
-                    elif file_extension in ['xlsx', 'xls']:
-                        process_and_store_xlsx(uploaded_file)
-                    else:
-                        logger.error(f"Unsupported file type: {file_extension}")
-                        return render(request, 'upload_pdf.html', {
-                            'uploaded_files': uploaded_files,
-                            'answer': answer,
-                            'question': question,
-                            'error': f"Unsupported file type: {file_extension}"
-                        })
-                except Exception as e:
-                    logger.error(f"Error processing file {uploaded_file.name}: {e}")
-                    return render(request, 'upload_pdf.html', {
-                        'uploaded_files': uploaded_files,
-                        'answer': answer,
-                        'question': question,
-                        'error': f"Failed to process {uploaded_file.name}"
-                    })
-
-            # Reload the page after upload
-            return redirect('upload_pdf_page')
-
-        elif 'question' in request.POST:
-            # Process question
-            question = request.POST['question']
-            file_name = request.POST.get('file_name')  # Optional: specify file to query against
-
-            try:
-                answer = ask_question(question, file_name)
-            except Exception as e:
-                logger.error(f"Error retrieving answer: {e}")
-                answer = "An error occurred while processing your question."
-
-    return render(request, 'upload_pdf.html', {
-        'uploaded_files': uploaded_files,
-        'answer': answer,
-        'question': question
-    })
-
-
 # Ask question using direct query or OpenAI model
 def ask_question(question, file_name=None):
     intent, filter_term = parse_question(question)
