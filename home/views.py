@@ -38,28 +38,6 @@ def get_embedding(text):
     )
     return response['data'][0]['embedding']
 
-# Function to process and store data from an XLSX file
-def process_and_store_xlsx(xlsx_file):
-    # Read the Excel file into a DataFrame
-    df = pd.read_excel(xlsx_file)
-
-    # Process each row and create embeddings
-    for _, row in df.iterrows():
-        # Customize this to select and combine relevant columns for embedding
-        data_text = f"Order: {row['order']}, Time: {row['time']}, Amount: {row['amount']}, Status: {row['status']}"
-        embedding = get_embedding(data_text)
-
-        # Store in MongoDB with the original data
-        document = {
-            "data_text": data_text,
-            "embedding": embedding,
-            "row_data": row.to_dict(),  # Store the full row data for reference
-            "upload_date": datetime.utcnow(),
-            "file_type": "xlsx"
-        }
-        collection.insert_one(document)
-
-    print("Data processed and stored successfully.")
 
 # Function to create or update the vector database in MongoDB
 def upload_file_and_create_vector_store(pdf_files):
@@ -140,28 +118,65 @@ def ask_question(question):
     return response['choices'][0]['message']['content'].strip()
 
 
-# Django API View to handle the XLSX file upload
+# Function to process and store data from an XLSX file
+def process_and_store_xlsx(xlsx_file):
+    df = pd.read_excel(xlsx_file)
+    for _, row in df.iterrows():
+        data_text = f"Order: {row['order']}, Time: {row['time']}, Amount: {row['amount']}, Status: {row['status']}"
+        embedding = get_embedding(data_text)
+        document = {
+            "data_text": data_text,
+            "embedding": embedding,
+            "row_data": row.to_dict(),
+            "upload_date": datetime.utcnow(),
+            "file_type": "xlsx"
+        }
+        collection.insert_one(document)
+    print("XLSX data processed and stored successfully.")
+
+# Function to process and store data from a PDF file
+def process_and_store_pdf(pdf_file):
+    reader = PdfReader(pdf_file)
+    text_content = ""
+    for page in reader.pages:
+        text_content += page.extract_text() or ""
+    embedding = get_embedding(text_content)
+    document = {
+        "data_text": text_content,
+        "embedding": embedding,
+        "upload_date": datetime.utcnow(),
+        "file_type": "pdf"
+    }
+    collection.insert_one(document)
+    print("PDF data processed and stored successfully.")
+
+# Django API View to handle both XLSX and PDF file uploads
 class UploadDocumentAPI(APIView):
-    """API to upload an XLSX document and create embeddings for its content."""
+    """API to upload either an XLSX or a PDF document and create embeddings for its content."""
 
     def post(self, request):
-        if 'xlsx_file' not in request.FILES:
-            return Response({"error": "No XLSX file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+        if 'file' not in request.FILES:
+            return Response({"error": "No file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
-        xlsx_file = request.FILES['xlsx_file']  # Get the uploaded XLSX file
-        
+        uploaded_file = request.FILES['file']
+        file_name = uploaded_file.name
+
         try:
-            # Process and store data from the XLSX file
-            process_and_store_xlsx(xlsx_file)
+            # Check the file type and process accordingly
+            if file_name.endswith('.xlsx'):
+                process_and_store_xlsx(uploaded_file)
+            elif file_name.endswith('.pdf'):
+                process_and_store_pdf(uploaded_file)
+            else:
+                return Response({"error": "Unsupported file format. Please upload an XLSX or PDF file."}, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
-                "status": "File processed and data stored successfully"
+                "status": f"File '{file_name}' processed and data stored successfully"
             }, status=status.HTTP_201_CREATED)
         
         except Exception as e:
-            # Log the error and respond with an error message
-            print(f"Error processing file: {e}")
-            return Response({"error": "Failed to process the uploaded file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            print(f"Error processing file '{file_name}': {e}")
+            return Response({"error": f"Failed to process the uploaded file '{file_name}'."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class AskQuestionAPI(APIView):
