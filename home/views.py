@@ -95,7 +95,7 @@ def ask_question(question):
     prompt = f"Answer the following question using the provided context:\n\n{context}\n\nQuestion: {question}\nAnswer:"
     
     response = openai.Completion.create(
-        model="gpt-4o",
+        model="text-davinci-003",
         prompt=prompt,
         max_tokens=500
     )
