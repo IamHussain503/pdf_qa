@@ -31,31 +31,19 @@ ALLOWED_HOSTS = ['38.242.218.205']
 
 # settings.py
 
-# settings.py
-
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'level': 'DEBUG',  # Set to DEBUG to capture all log levels
         },
     },
-    'loggers': {
-        '': {
-            'handlers': ['console'],
-            'level': 'DEBUG',  # Set to DEBUG for verbose output
-            'propagate': True,
-        },
-        'django': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
-        },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',  # Set to INFO to capture all info logs
     },
 }
-
 
 
 # Application definition
