@@ -200,6 +200,126 @@ class AskQuestionAPI(APIView):
             logger.error(f"Error while processing the question: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+import os
+import csv
+import pandas as pd
+from django.http import JsonResponse
+from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
+from langchain.document_loaders import CSVLoader
+from langchain.chains.question_answering import load_qa_chain
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+
+# MongoDB setup
+client = MongoClient(os.getenv("MONGODB_URL"))
+db = client.Todo
+collection = db['documents']
+
+class UploadExcelAPI(APIView):
+    """API to upload an Excel file, store as JSON in MongoDB, and prevent duplicates by document name."""
+
+    def post(self, request):
+        if 'excel_file' not in request.FILES:
+            return Response({"error": "No Excel file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        excel_file = request.FILES['excel_file']
+        document_name = request.data.get('document_name')
+
+        # Check if document name already exists
+        if collection.find_one({"document_name": document_name}):
+            return Response({"error": "Document with this name already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Read Excel file into a DataFrame, then convert to JSON
+        try:
+            df = pd.read_excel(excel_file)
+            json_data = df.to_dict(orient='records')  # Convert DataFrame to list of JSON objects
+            document = {
+                "document_name": document_name,
+                "data": json_data
+            }
+            # Insert the JSON document into MongoDB
+            result = collection.insert_one(document)
+            return Response({
+                "document_id": str(result.inserted_id),
+                "document_name": document_name,
+                "status": "Excel file uploaded and stored as JSON successfully"
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class RetrieveExcelAsCSVAPI(APIView):
+    """API to retrieve a document by name, convert JSON to CSV, and save to /tmp for LangChain."""
+
+    def get(self, request, document_name):
+        # Retrieve document by name
+        document = collection.find_one({"document_name": document_name})
+        if not document:
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Convert JSON data to CSV and save in /tmp directory
+        csv_file_path = f"/tmp/{document_name}.csv"
+        try:
+            with open(csv_file_path, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.DictWriter(file, fieldnames=document["data"][0].keys())
+                writer.writeheader()
+                writer.writerows(document["data"])
+
+            return JsonResponse({
+                "message": f"CSV file generated successfully at {csv_file_path}",
+                "csv_file_path": csv_file_path
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AskQuestionAPI(APIView):
+    """API to answer questions based on the document name by using the generated CSV in LangChain."""
+
+    def post(self, request):
+        question = request.data.get('question')
+        document_name = request.data.get('document_name')
+
+        # Generate CSV path and ensure the file exists
+        csv_file_path = f"/tmp/{document_name}.csv"
+        if not os.path.exists(csv_file_path):
+            return Response({"error": "CSV file not found. Please ensure the document is available and processed."}, 
+                            status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            # Use the CSV file with LangChain API
+            answer = langchain_process_csv(csv_file_path, question)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": "Error processing question. Please try again."}, 
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def langchain_process_csv(csv_file_path, question):
+    """Process the CSV file with LangChain to answer a question."""
+    # Load CSV and process it with LangChain's document loaders and query tools
+    loader = CSVLoader(csv_file_path=csv_file_path)
+    documents = loader.load()
+
+    # Initialize vector store and embeddings
+    embeddings = OpenAIEmbeddings()
+    vectorstore = FAISS.from_documents(documents, embeddings)
+
+    # Run a QA chain with the vector store
+    qa_chain = load_qa_chain(vectorstore)
+    answer = qa_chain.run({"question": question})
+
+    return answer
+
+
+
 
 def upload_pdf_page(request):
     """Frontend view to upload PDF and ask questions."""
