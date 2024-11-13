@@ -273,34 +273,33 @@ class UploadDocumentAPI(APIView):
     """API to upload XLSX or PDF documents and create embeddings for their content."""
 
     def post(self, request):
-        # Check for uploaded files
-        uploaded_files = request.FILES.getlist('file')
-        if not uploaded_files:
-            return Response({"error": "No files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+        # Check for PDF or XLSX files in the upload
+        if 'pdf_files' in request.FILES:
+            pdf_files = request.FILES.getlist('pdf_files')
+            for pdf_file in pdf_files:
+                try:
+                    process_and_store_pdf(pdf_file)
+                except Exception as e:
+                    logger.error(f"Error processing PDF file {pdf_file.name}: {e}")
+                    return Response({"error": f"Failed to process {pdf_file.name}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Process each uploaded file based on its extension
-        for uploaded_file in uploaded_files:
-            file_name = uploaded_file.name
-            file_extension = file_name.split('.')[-1].lower()
+            return Response({
+                "status": "PDF file(s) processed and data stored successfully"
+            }, status=status.HTTP_201_CREATED)
 
+        elif 'xlsx_file' in request.FILES:
+            xlsx_file = request.FILES['xlsx_file']
             try:
-                if file_extension == 'pdf':
-                    # Process PDF file
-                    process_and_store_pdf(uploaded_file)
-                elif file_extension in ['xlsx', 'xls']:
-                    # Process XLSX or XLS file
-                    process_and_store_xlsx(uploaded_file)
-                else:
-                    logger.error(f"Unsupported file type: {file_extension}")
-                    return Response({"error": f"Unsupported file type: {file_extension}"}, status=status.HTTP_400_BAD_REQUEST)
-
+                process_and_store_xlsx(xlsx_file)
+                return Response({
+                    "status": "XLSX file processed and data stored successfully"
+                }, status=status.HTTP_201_CREATED)
             except Exception as e:
-                logger.error(f"Error processing file {file_name}: {e}")
-                return Response({"error": f"Failed to process {file_name}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                logger.error(f"Error processing XLSX file: {e}")
+                return Response({"error": "Failed to process the uploaded XLSX file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response({
-            "status": "Files processed and data stored successfully"
-        }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({"error": "No PDF or XLSX files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
 # Function to find similar documents based on query
 def find_similar_documents(query):
