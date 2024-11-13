@@ -31,17 +31,17 @@ from django.urls import path
 from home import views
 
 urlpatterns = [
-    path('admin/', admin.site.urls),  # Admin panel URL
-    path('upload_pdf/', views.upload_pdf_page, name='upload_pdf_page'),  # Handle PDF upload and questions
-    path('upload_pdf/upload/', views.upload_pdf_page, name='upload_pdf_upload'),  # Same function for uploading and processing
-    path('ask_question/', views.upload_pdf_page, name='ask_question'),  # Reusing the upload_pdf_page for asking questions
-    path('upload_pdf/<str:vector_store_id>/', views.upload_pdf_page, name='upload_pdf_page_with_id'),  # Handle uploads with vector_store_id
+    # PDF endpoints
     path('api/upload_document/', views.UploadDocumentAPI.as_view(), name='upload_document'),
-    path('api/retrieve_documents/', views.RetrieveDocumentAPI.as_view(), name='retrieve_documents'),
+    path('api/retrieve_pdf_documents/', views.RetrievePDFDocumentsAPI.as_view(), name='retrieve_pdf_documents'),
     path('api/ask_question/', views.AskQuestionAPI.as_view(), name='ask_question'),
-    path('upload-excel/', views.UploadExcelAPI.as_view(), name='upload_excel'),
-    path('retrieve-csv/<str:document_name>/', views.RetrieveExcelAsCSVAPI.as_view(), name='retrieve_csv'),
-    path('ask-question/', views.AskQuestionAPI.as_view(), name='ask_question'),
-    path('api/upload_excel/', views.UploadExcelAPI.as_view(), name='upload_excel'),
 
+    # Excel endpoints
+    path('api/upload_excel/', views.UploadExcelAPI.as_view(), name='upload_excel'),
+    path('api/retrieve_excel_documents/', views.RetrieveExcelDocumentsAPI.as_view(), name='retrieve_excel_documents'),
+    path('api/retrieve_csv/<str:document_name>/', views.RetrieveExcelAsCSVAPI.as_view(), name='retrieve_csv'),
+    path('api/ask_excel_question/', views.AskExcelQuestionAPI.as_view(), name='ask_excel_question'),
+
+    # Frontend view
+    path('upload_pdf_page/', views.upload_pdf_page, name='upload_pdf_page'),
 ]
