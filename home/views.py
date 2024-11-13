@@ -10,15 +10,6 @@ from pymongo import MongoClient
 from openai.embeddings_utils import cosine_similarity
 import numpy as np
 from datetime import datetime
-import openai
-import pandas as pd
-from pymongo import MongoClient
-from datetime import datetime
-from django.http import JsonResponse
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-import os
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -37,29 +28,6 @@ def get_embedding(text):
         input=text
     )
     return response['data'][0]['embedding']
-
-# Function to process and store data from an XLSX file
-def process_and_store_xlsx(xlsx_file):
-    # Read the Excel file into a DataFrame
-    df = pd.read_excel(xlsx_file)
-
-    # Process each row and create embeddings
-    for _, row in df.iterrows():
-        # Customize this to select and combine relevant columns for embedding
-        data_text = f"Order: {row['order']}, Time: {row['time']}, Amount: {row['amount']}, Status: {row['status']}"
-        embedding = get_embedding(data_text)
-
-        # Store in MongoDB with the original data
-        document = {
-            "data_text": data_text,
-            "embedding": embedding,
-            "row_data": row.to_dict(),  # Store the full row data for reference
-            "upload_date": datetime.utcnow(),
-            "file_type": "xlsx"
-        }
-        collection.insert_one(document)
-
-    print("Data processed and stored successfully.")
 
 # Function to create or update the vector database in MongoDB
 def upload_file_and_create_vector_store(pdf_files):
@@ -140,28 +108,21 @@ def ask_question(question):
     return response['choices'][0]['message']['content'].strip()
 
 
-# Django API View to handle the XLSX file upload
+# Django API Views
 class UploadDocumentAPI(APIView):
-    """API to upload an XLSX document and create embeddings for its content."""
-
     def post(self, request):
-        if 'xlsx_file' not in request.FILES:
-            return Response({"error": "No XLSX file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+        if 'pdf_files' not in request.FILES:
+            return Response({"error": "No PDF files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
-        xlsx_file = request.FILES['xlsx_file']  # Get the uploaded XLSX file
-        
-        try:
-            # Process and store data from the XLSX file
-            process_and_store_xlsx(xlsx_file)
+        pdf_files = request.FILES.getlist('pdf_files')
+        vector_store_data = upload_file_and_create_vector_store(pdf_files)
 
-            return Response({
-                "status": "File processed and data stored successfully"
-            }, status=status.HTTP_201_CREATED)
+        file_names = [data["file_name"] for data in vector_store_data]
         
-        except Exception as e:
-            # Log the error and respond with an error message
-            print(f"Error processing file: {e}")
-            return Response({"error": "Failed to process the uploaded file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({
+            "file_names": file_names,
+            "status": "Files uploaded successfully"
+        }, status=status.HTTP_201_CREATED)
 
 
 class AskQuestionAPI(APIView):
