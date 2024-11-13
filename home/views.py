@@ -142,7 +142,7 @@ class UploadExcelAPI(APIView):
             return Response({"error": "No Excel file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
         excel_file = request.FILES['excel_file']
-        document_name = request.data.get('document_name')
+        document_name = excel_file.name  # Use the file name as the document name
 
         # Check if document name already exists
         if collection.find_one({"document_name": document_name}):
@@ -165,6 +165,7 @@ class UploadExcelAPI(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class RetrieveExcelAsCSVAPI(APIView):
