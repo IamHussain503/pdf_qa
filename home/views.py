@@ -9,7 +9,6 @@ from rest_framework import status
 from pymongo import MongoClient
 from openai.embeddings_utils import cosine_similarity
 import numpy as np
-from datetime import datetime
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -43,9 +42,7 @@ def upload_file_and_create_vector_store(pdf_files):
         document = {
             "file_name": pdf_file.name,
             "content": text_content,
-            "embedding": embeddings,
-            "upload_date": datetime.utcnow(),
-            "file_type": "pdf"
+            "embedding": embeddings
         }
         collection.insert_one(document)
         vector_store_data.append(document)
@@ -153,6 +150,7 @@ class RetrieveDocumentsAPI(APIView):
 
         return Response({"documents": document_list}, status=status.HTTP_200_OK)
 
+
 def upload_pdf_page(request):
     """Frontend view to upload PDF and ask questions."""
     uploaded_files = list(collection.find({}, {'_id': 1, 'file_name': 1}))
@@ -163,8 +161,8 @@ def upload_pdf_page(request):
     question = None
 
     if request.method == 'POST':
-        if 'pdf_files' in request.FILES:
-            pdf_files = request.FILES.getlist('pdf_files')
+        if 'pdf_file' in request.FILES:
+            pdf_files = request.FILES.getlist('pdf_file')
             upload_file_and_create_vector_store(pdf_files)
             return redirect('upload_pdf_page')
 
@@ -177,3 +175,7 @@ def upload_pdf_page(request):
         'answer': answer,
         'question': question
     })
+
+
+
+
