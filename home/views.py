@@ -371,13 +371,11 @@ def upload_pdf_page(request):
 
 # Ask question using direct query or OpenAI model
 def ask_question(question, file_name=None):
-    # Initial log to confirm the function is called
-    print("Function `ask_question` called.")
-    print(f"Received question: '{question}'")
+    print(f"Received question: {question}")
     if file_name:
-        print(f"Filtering by file_name: '{file_name}'")
+        print(f"Filtering by file_name: {file_name}")
 
-    # Check if documents exist in the database
+    # Check for documents in the database
     if file_name:
         documents = list(collection.find({"file_name": file_name}, {"data_text": 1, "embedding": 1}))
         print(f"Documents found for file '{file_name}': {len(documents)}")
@@ -386,20 +384,20 @@ def ask_question(question, file_name=None):
         print(f"Total documents found: {len(documents)}")
     
     if not documents:
-        print("No documents found for specified file or in database.")
         return "No documents found for specified file."
 
-    # Prepare OpenAI API call
-    print("Preparing to call OpenAI API with question context.")
+    # Assume intent parsing and OpenAI API call here...
+    # Print debugging info before calling OpenAI
+    print("Preparing to call OpenAI API with context and question.")
+    # Simulate OpenAI API call
     try:
-        # Replace with actual OpenAI API call and response handling
-        response = "Simulated OpenAI response based on context"
+        # Example response - replace with actual OpenAI API call
+        response = "Simulated response from OpenAI API"
         print(f"Response from OpenAI API: {response}")
         return response
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
         return "Error processing the question."
-
 
 
 
