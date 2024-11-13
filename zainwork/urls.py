@@ -42,5 +42,6 @@ urlpatterns = [
     path('upload-excel/', views.UploadExcelAPI.as_view(), name='upload_excel'),
     path('retrieve-csv/<str:document_name>/', views.RetrieveExcelAsCSVAPI.as_view(), name='retrieve_csv'),
     path('ask-question/', views.AskQuestionAPI.as_view(), name='ask_question'),
+    path('api/upload_excel/', views.UploadExcelAPI.as_view(), name='upload_excel'),
 
 ]
