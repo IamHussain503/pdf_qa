@@ -127,30 +127,6 @@ class AskQuestionAPI(APIView):
             logger.error(f"Error while processing the question: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class RetrieveDocumentsAPI(APIView):
-    """API to retrieve all documents with their metadata."""
-
-    def get(self, request):
-        # Fetch all documents in the collection with relevant fields
-        documents = list(collection.find(
-            {},  # No filter to retrieve all documents
-            {"file_name": 1, "upload_date": 1, "file_type": 1, "_id": 1}
-        ))
-
-        # Format each document with its metadata
-        document_list = [
-            {
-                "document_id": str(doc["_id"]),
-                "file_name": doc.get("file_name", ""),
-                "upload_date": doc.get("upload_date", ""),
-                "file_type": doc.get("file_type", "")
-            }
-            for doc in documents
-        ]
-
-        return Response({"documents": document_list}, status=status.HTTP_200_OK)
-
-
 def upload_pdf_page(request):
     """Frontend view to upload PDF and ask questions."""
     uploaded_files = list(collection.find({}, {'_id': 1, 'file_name': 1}))
@@ -175,7 +151,3 @@ def upload_pdf_page(request):
         'answer': answer,
         'question': question
     })
-
-
-
-
