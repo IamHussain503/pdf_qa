@@ -1,5 +1,7 @@
 import os
 import logging
+import csv
+import pandas as pd
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from rest_framework.views import APIView
@@ -10,8 +12,6 @@ from pymongo import MongoClient
 import openai
 from openai.error import OpenAIError
 from .models import UploadedDocument
-import pandas as pd
-import csv
 
 logger = logging.getLogger(__name__)
 
@@ -229,3 +229,39 @@ def langchain_process_csv(csv_file_path, question):
     answer = qa_chain.run({"question": question})
 
     return answer
+
+
+def upload_pdf_page(request):
+    """Frontend view to upload PDF and ask questions."""
+    uploaded_files = list(collection.find({}, {'_id': 1, 'file_name': 1}))
+    for file in uploaded_files:
+        file['file_id'] = str(file['_id'])
+
+    answer = None
+    question = None
+
+    if request.method == 'POST':
+        if 'pdf_file' in request.FILES:
+            pdf_file = request.FILES['pdf_file']
+            file_name = pdf_file.name
+            vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
+
+            document = {"file_name": file_name, "vector_store_id": vector_store['id']}
+            collection.insert_one(document)
+            return redirect('upload_pdf_page')
+
+        elif 'uploaded_file' in request.POST and 'question' in request.POST:
+            uploaded_file_id = request.POST['uploaded_file']
+            question = request.POST['question']
+            try:
+                uploaded_file = collection.find_one({"_id": ObjectId(uploaded_file_id)})
+                if uploaded_file:
+                    answer = ask_question_with_file_search(question, uploaded_file['vector_store_id'])
+            except Exception as e:
+                logger.error(f"Error retrieving file: {e}")
+
+    return render(request, 'upload_pdf.html', {
+        'uploaded_files': uploaded_files,
+        'answer': answer,
+        'question': question
+    })
