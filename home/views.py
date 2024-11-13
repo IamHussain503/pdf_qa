@@ -371,34 +371,42 @@ def upload_pdf_page(request):
 
 # Ask question using direct query or OpenAI model
 def ask_question(question, file_name=None):
-    print(f"Received question: {question}")
-    if file_name:
-        print(f"Filtering by file_name: {file_name}")
-
-    # Check for documents in the database
-    if file_name:
-        documents = list(collection.find({"file_name": file_name}, {"data_text": 1, "embedding": 1}))
-        print(f"Documents found for file '{file_name}': {len(documents)}")
-    else:
-        documents = list(collection.find({}, {"data_text": 1, "embedding": 1}))
-        print(f"Total documents found: {len(documents)}")
+    intent, filter_term = parse_question(question)
+    if intent in ["count", "sum", "average", "history"]:
+        aggregation = generate_query(intent, filter_term, file_name)
+        result = list(collection.aggregate(aggregation))
+        if result:
+            if intent == "count":
+                return f"The total count is {result[0]['total_count']}."
+            elif intent == "sum":
+                return f"The total sum is {result[0]['total_amount']}."
+            elif intent == "average":
+                return f"The average amount is {result[0]['average_amount']:.2f}."
+            elif intent == "history":
+                return f"History result: {result}"
+        return "No matching data found."
     
-    if not documents:
-        return "No documents found for specified file."
-
-    # Assume intent parsing and OpenAI API call here...
-    # Print debugging info before calling OpenAI
-    print("Preparing to call OpenAI API with context and question.")
-    # Simulate OpenAI API call
-    try:
-        # Example response - replace with actual OpenAI API call
-        response = "Simulated response from OpenAI API"
-        print(f"Response from OpenAI API: {response}")
-        return response
-    except Exception as e:
-        print(f"Error calling OpenAI API: {e}")
-        return "Error processing the question."
-
+    # For complex queries, use OpenAI's model
+    query_embedding = get_embedding(question)
+    documents = list(collection.find({"file_name": file_name} if file_name else {}, {"data_text": 1, "embedding": 1}))
+    similarities = []
+    for doc in documents:
+        doc_embedding = doc['embedding']
+        similarity_score = cosine_similarity(np.array(query_embedding), np.array(doc_embedding))
+        similarities.append((doc, similarity_score))
+    similarities.sort(key=lambda x: x[1], reverse=True)
+    top_docs = [doc for doc, _ in similarities[:5]]
+    context = "\n\n".join([doc["data_text"] for doc in top_docs])
+    messages = [
+        {"role": "system", "content": "You are an assistant that answers questions based on customer order data."},
+        {"role": "user", "content": f"Here is some relevant data:\n\n{context}\n\nNow, answer the question:\n{question}"}
+    ]
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",
+        messages=messages,
+        max_tokens=500,
+    )
+    return response['choices'][0]['message']['content'].strip()
 
 
 # Django API Views
