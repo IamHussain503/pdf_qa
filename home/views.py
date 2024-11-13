@@ -408,23 +408,14 @@ def ask_question(question, file_name=None):
     )
     return response['choices'][0]['message']['content'].strip()
 
-
 # Django API Views
 class UploadDocumentAPI(APIView):
     def post(self, request):
         uploaded_files = request.FILES.getlist('file')
         if not uploaded_files:
             return Response({"error": "No files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
-        
         for uploaded_file in uploaded_files:
             file_name = uploaded_file.name
-
-            # Check if a document with the same file name already exists
-            if collection.find_one({"file_name": file_name}):
-                return Response({"error": f"The document '{file_name}' already exists in the database."}, 
-                                status=status.HTTP_400_BAD_REQUEST)
-            
-            # Proceed to process and store the file if it's not a duplicate
             file_extension = file_name.split('.')[-1].lower()
             try:
                 if file_extension == 'pdf':
@@ -433,51 +424,35 @@ class UploadDocumentAPI(APIView):
                     process_and_store_xlsx(uploaded_file)
                 else:
                     logger.error(f"Unsupported file type: {file_extension}")
-                    return Response({"error": f"Unsupported file type: {file_extension}"}, 
-                                    status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"error": f"Unsupported file type: {file_extension}"}, status=status.HTTP_400_BAD_REQUEST)
             except Exception as e:
                 logger.error(f"Error processing file {file_name}: {e}")
-                return Response({"error": f"Failed to process {file_name}"}, 
-                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+                return Response({"error": f"Failed to process {file_name}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({"status": "Files processed and data stored successfully"}, status=status.HTTP_201_CREATED)
 
 class AskQuestionAPI(APIView):
-    """API to answer questions using the vector store."""
-
     def post(self, request):
         question = request.data.get('question')
-        file_name = request.data.get('file_name')  # Optional: specify the document name to limit search
-
+        file_name = request.data.get('file_name')  # Optional parameter to specify the file name
         if not question:
             return Response({"error": "The 'question' is required."}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
-            # Process question with optional file name filter
             answer = ask_question(question, file_name)
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
-
         except Exception as e:
             logger.error(f"Error while processing the question: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class RetrieveDocumentsAPI(APIView):
-    """API to retrieve all documents grouped by file name."""
-
     def get(self, request):
-        # Fetch all documents with key fields, grouped by file name for easier identification
         documents = list(collection.find(
             {}, {"file_name": 1, "upload_date": 1, "file_type": 1, "_id": 1, "row_data": 1}
         ))
-
-        # Organize documents by file name for structured output
         grouped_documents = {}
         for doc in documents:
             file_name = doc.get("file_name", "Unknown File")
             if file_name not in grouped_documents:
                 grouped_documents[file_name] = []
-            
-            # Summary of each document row for easy reference
             doc_summary = {
                 "document_id": str(doc["_id"]),
                 "upload_date": doc.get("upload_date", ""),
@@ -486,6 +461,5 @@ class RetrieveDocumentsAPI(APIView):
             }
             grouped_documents[file_name].append(doc_summary)
 
-        # Structure response with document details grouped by file name
         response_data = [{"file_name": file_name, "documents": docs} for file_name, docs in grouped_documents.items()]
         return Response({"files": response_data}, status=status.HTTP_200_OK)
