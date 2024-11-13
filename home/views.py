@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 # MongoDB and OpenAI setup
 client = MongoClient(os.getenv("MONGODB_URL"))
 db = client.Todo
-collection = db['home_uploadeddocument']
+pdf_collection = db['pdf_documents']  # Collection for PDF documents
+excel_collection = db['excel_documents']  # Collection for Excel documents
 
 # Set the OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -70,7 +71,7 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
         error_message = str(e)
         if "404" in error_message and "not found" in error_message:
             print(f"Vector store with ID '{vector_store_id}' not found. Deleting from MongoDB.")
-            collection.delete_one({"vector_store_id": vector_store_id})
+            pdf_collection.delete_one({"vector_store_id": vector_store_id})
             return {"error": "The vector store ID was not found and has been removed from the database."}
 
         else:
@@ -94,7 +95,7 @@ class UploadDocumentAPI(APIView):
 
         logger.info(f"Vector store created with ID: {vector_store['id']}")
         documents = [{"file_name": name, "vector_store_id": vector_store['id']} for name in file_names]
-        collection.insert_many(documents)
+        pdf_collection.insert_many(documents)
 
         return Response({
             "file_names": file_names,
@@ -103,12 +104,12 @@ class UploadDocumentAPI(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-class RetrieveDocumentAPI(APIView):
-    """API to retrieve file_name and vector_store_id for all uploaded documents."""
+class RetrievePDFDocumentsAPI(APIView):
+    """API to retrieve file_name and vector_store_id for all uploaded PDF documents."""
 
     def get(self, request):
         try:
-            documents = list(collection.find({}, {"file_name": 1, "vector_store_id": 1, "_id": 1}))
+            documents = list(pdf_collection.find({}, {"file_name": 1, "vector_store_id": 1, "_id": 1}))
             documents_list = [
                 {
                     "file_id": str(doc["_id"]),
@@ -119,14 +120,12 @@ class RetrieveDocumentAPI(APIView):
             ]
             return JsonResponse(documents_list, safe=False)
         except Exception as e:
-            # Log the error for debugging
-            logger.error(f"Error retrieving documents: {e}")
+            logger.error(f"Error retrieving PDF documents: {e}")
             return Response({"error": "Failed to retrieve documents"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
 class AskQuestionAPI(APIView):
-    """API to answer questions using the vector store."""
+    """API to answer questions based on a PDF's vector store."""
 
     def post(self, request):
         question = request.data.get('question')
@@ -154,8 +153,8 @@ class UploadExcelAPI(APIView):
         excel_file = request.FILES['excel_file']
         document_name = excel_file.name  # Use the file name as the document name
 
-        # Check if document name already exists
-        if collection.find_one({"document_name": document_name}):
+        # Check if document name already exists in excel collection
+        if excel_collection.find_one({"document_name": document_name}):
             return Response({"error": "Document with this name already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Read Excel file into a DataFrame, then convert to JSON
@@ -166,7 +165,7 @@ class UploadExcelAPI(APIView):
                 "document_name": document_name,
                 "data": json_data
             }
-            result = collection.insert_one(document)
+            result = excel_collection.insert_one(document)
             return Response({
                 "document_id": str(result.inserted_id),
                 "document_name": document_name,
@@ -177,12 +176,30 @@ class UploadExcelAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class RetrieveExcelDocumentsAPI(APIView):
+    """API to retrieve file_name and document_name for all uploaded Excel documents."""
+
+    def get(self, request):
+        try:
+            documents = list(excel_collection.find({}, {"document_name": 1, "_id": 1}))
+            documents_list = [
+                {
+                    "file_id": str(doc["_id"]),
+                    "document_name": doc.get("document_name", "Unknown")
+                }
+                for doc in documents
+            ]
+            return JsonResponse(documents_list, safe=False)
+        except Exception as e:
+            logger.error(f"Error retrieving Excel documents: {e}")
+            return Response({"error": "Failed to retrieve documents"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class RetrieveExcelAsCSVAPI(APIView):
-    """API to retrieve a document by name, convert JSON to CSV, and save to /tmp for LangChain."""
+    """API to retrieve an Excel document by name, convert JSON to CSV, and save to /tmp for LangChain."""
 
     def get(self, request, document_name):
-        document = collection.find_one({"document_name": document_name})
+        document = excel_collection.find_one({"document_name": document_name})
         if not document:
             return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -244,7 +261,7 @@ def langchain_process_csv(csv_file_path, question):
 
 def upload_pdf_page(request):
     """Frontend view to upload PDF and ask questions."""
-    uploaded_files = list(collection.find({}, {'_id': 1, 'file_name': 1}))
+    uploaded_files = list(pdf_collection.find({}, {'_id': 1, 'file_name': 1}))
     for file in uploaded_files:
         file['file_id'] = str(file['_id'])
 
@@ -258,14 +275,14 @@ def upload_pdf_page(request):
             vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
 
             document = {"file_name": file_name, "vector_store_id": vector_store['id']}
-            collection.insert_one(document)
+            pdf_collection.insert_one(document)
             return redirect('upload_pdf_page')
 
         elif 'uploaded_file' in request.POST and 'question' in request.POST:
             uploaded_file_id = request.POST['uploaded_file']
             question = request.POST['question']
             try:
-                uploaded_file = collection.find_one({"_id": ObjectId(uploaded_file_id)})
+                uploaded_file = pdf_collection.find_one({"_id": ObjectId(uploaded_file_id)})
                 if uploaded_file:
                     answer = ask_question_with_file_search(question, uploaded_file['vector_store_id'])
             except Exception as e:
