@@ -326,20 +326,23 @@ class AskExcelQuestionAPI(APIView):
                 chain_type="stuff",  # "stuff" is the chain type recommended for simple QA tasks
                 retriever=retriever
             )
-            return qa_chain  # Return the chain as the session
+            return qa_chain  # Return only the qa_chain, not the entire chain object in the response
 
         except Exception as e:
             logger.error(f"Failed to initialize LangChain session: {e}")
             raise
 
+
     def ask_question_in_session(self, qa_chain, question):
         """Ask a question within the LangChain session context."""
         try:
-            response = qa_chain.run({"question": question})
-            return response
+            # Run the question-answering chain to get the answer
+            answer = qa_chain.run({"question": question})
+            return answer  # Return only the answer as a response
         except Exception as e:
             logger.error(f"Error processing question in LangChain session: {e}")
             return "Error: Unable to process the question."
+
 
     def is_session_active(self, session_id):
         """Check if the session context is active in LangChain."""
