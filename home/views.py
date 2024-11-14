@@ -276,15 +276,6 @@ from rest_framework import status
 class AskExcelQuestionAPI(APIView):
     """API to answer questions based on an Excel document's CSV with persistent session context using MongoDB."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
-        # MongoDB setup for session storage
-        client = MongoClient(os.getenv("MONGODB_URL"))
-        self.db = client.Todo
-        self.session_collection = self.db['langchain_sessions']
-        self.context_sessions = {}  # In-memory cache for active sessions
-
     def normalize_document_name(self, document_name):
         """Normalize the document name to ensure consistency in storage and retrieval."""
         return document_name.replace(" ", "_").lower()
@@ -402,6 +393,7 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"Unexpected error: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, 
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
