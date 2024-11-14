@@ -328,33 +328,22 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"Failed to initialize LangChain session: {e}")
             raise
 
-    def retrieve_session(self, context_id):
-        """Retrieve session by context_id from memory or MongoDB if needed."""
+    def retrieve_or_initialize_session(self, csv_file_path, context_id=None):
+        """Retrieve an existing session or initialize a new one based on the csv_file_path."""
         
-        # Check if session is already in memory
-        if context_id in self.context_sessions:
-            logger.debug(f"Session found in memory for context_id: {context_id}")
-            return self.context_sessions[context_id]
+        # Attempt to retrieve session from MongoDB if not cached in memory
+        if context_id:
+            session_data = self.session_collection.find_one({"context_id": context_id})
+            if session_data:
+                csv_file_path = session_data["csv_file_path"]
+                logger.debug(f"Restoring session from MongoDB for context_id: {context_id}")
 
-        # Fetch session details from MongoDB if not found in memory
-        session_data = self.session_collection.find_one({"context_id": context_id})
-        
-        if session_data:
-            csv_file_path = session_data["csv_file_path"]
-            logger.debug(f"Restoring session from MongoDB for context_id: {context_id}")
-            
-            # Reinitialize session and store it in memory
-            qa_chain = self.initialize_langchain_session(csv_file_path)
-            self.context_sessions[context_id] = qa_chain  # Cache restored session in memory
-            return qa_chain
+        # Initialize a new session if needed
+        return self.initialize_langchain_session(csv_file_path)
 
-        # Return None if session cannot be found or reinitialized
-        logger.warning(f"No session found for context_id: {context_id}")
-        return None
-
-    def ask_question_in_session(self, context_id, question):
-        """Ask a question within an existing session, loading from MongoDB if needed."""
-        qa_chain = self.retrieve_session(context_id)
+    def ask_question_in_session(self, context_id, question, csv_file_path):
+        """Ask a question within an existing session, reinitializing each time from MongoDB if needed."""
+        qa_chain = self.retrieve_or_initialize_session(csv_file_path, context_id)
         if not qa_chain:
             return "Error: Context ID not found or session expired."
 
@@ -378,7 +367,7 @@ class AskExcelQuestionAPI(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Attempt to retrieve an existing context_id from MongoDB
+            # Attempt to retrieve the document metadata from MongoDB
             logger.debug(f"Searching for document_name: {document_name}")
             document = self.excel_collection.find_one({"document_name": document_name})
 
@@ -398,7 +387,7 @@ class AskExcelQuestionAPI(APIView):
                     logger.debug(f"New context_id created: {context_id}")
 
             # Use the context_id to ask the question in the existing session
-            answer = self.ask_question_in_session(context_id, question)
+            answer = self.ask_question_in_session(context_id, question, csv_file_path)
 
             return Response({"question": question, "answer": answer, "context_id": context_id}, status=status.HTTP_200_OK)
 
