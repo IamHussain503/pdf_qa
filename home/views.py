@@ -362,18 +362,22 @@ class AskExcelQuestionAPI(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Use existing context_id if provided
-            if context_id:
-                answer = self.ask_question_in_session(context_id, question)
-            else:
-                # Initialize a new session if no context_id is provided
-                document = excel_collection.find_one({"document_name": document_name})
-                if not document:
-                    return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
-                
-                csv_file_path = document.get("csv_path")
-                context_id = self.initialize_langchain_session(csv_file_path)
-                answer = self.ask_question_in_session(context_id, question)
+            # Attempt to retrieve an existing context_id from MongoDB
+            if not context_id:
+                session_record = self.session_collection.find_one({"csv_file_path": document_name})
+                if session_record:
+                    context_id = session_record["context_id"]
+                else:
+                    # If no session exists, initialize a new one
+                    document = excel_collection.find_one({"document_name": document_name})
+                    if not document:
+                        return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+                    
+                    csv_file_path = document.get("csv_path")
+                    context_id = self.initialize_langchain_session(csv_file_path)
+
+            # Use the context_id to ask the question in the existing session
+            answer = self.ask_question_in_session(context_id, question)
 
             return Response({"question": question, "answer": answer, "context_id": context_id}, status=status.HTTP_200_OK)
 
@@ -381,6 +385,7 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"Unexpected error: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, 
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
