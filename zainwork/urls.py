@@ -42,6 +42,7 @@ urlpatterns = [
     path('api/retrieve_csv/<str:document_name>/', views.RetrieveExcelAsCSVAPI.as_view(), name='retrieve_csv'),
     path('api/ask_excel_question/', views.AskExcelQuestionAPI.as_view(), name='ask_excel_question'),
 
+
     # Frontend view
     path('upload_pdf_page/', views.upload_pdf_page, name='upload_pdf_page'),
 ]
