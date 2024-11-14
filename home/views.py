@@ -290,26 +290,31 @@ class AskExcelQuestionAPI(APIView):
             answer = self.ask_question_in_session(session_id, question)
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
-        except Exception as e:
+        except OpenAIError as e:
             logger.error(f"An error occurred while processing the question: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-def initialize_langchain_session(self, csv_file_path):
-    """Initialize a LangChain session context with CSV data."""
-    try:
-        loader = CSVLoader(file_path=csv_file_path)
-        documents = loader.load()
+    def initialize_langchain_session(self, csv_file_path):
+        """Initialize a LangChain session context with CSV data."""
+        try:
+            from langchain_community.document_loaders import CSVLoader
+            from langchain_community.vectorstores import FAISS
+            from langchain_openai import OpenAIEmbeddings
+            from langchain.chains.question_answering import load_qa_chain
 
-        # Initialize embeddings with the updated import
-        embeddings = OpenAIEmbeddings()
-        vectorstore = FAISS.from_documents(documents, embeddings)
-        session_id = load_qa_chain(vectorstore)
-        return session_id
+            # Load CSV file without specifying csv_file_path
+            loader = CSVLoader(file_path=csv_file_path)
+            documents = loader.load()
 
-    except Exception as e:
-        logger.error(f"Failed to initialize LangChain session: {e}")
-        raise
+            # Initialize embeddings and vector store as before
+            embeddings = OpenAIEmbeddings()
+            vectorstore = FAISS.from_documents(documents, embeddings)
+            session_id = load_qa_chain(vectorstore)
+            return session_id
 
+        except Exception as e:
+            logger.error(f"Failed to initialize LangChain session: {e}")
+            raise
 
     def ask_question_in_session(self, session_id, question):
         """Ask a question within the LangChain session context."""
@@ -327,6 +332,7 @@ def initialize_langchain_session(self, csv_file_path):
         except Exception as e:
             logger.error(f"Error checking session status in LangChain: {e}")
             return False
+
 
 
 class RetrieveExcelDocumentsAPI(APIView):
