@@ -256,14 +256,19 @@ class AskQuestionAPI(APIView):
 
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class AskExcelQuestionAPI(APIView):
     """API to answer questions based on the Excel document's CSV with session persistence for context."""
 
     def post(self, request):
         question = request.data.get('question')
-        document_name = request.data.get('document_name').replace(" ", "_")  # Standardize input to match stored format
+        document_name = request.data.get('document_name').replace(" ", "_")
 
         if not question or not document_name:
+            logger.error("Both 'question' and 'document_name' are required.")
             return Response({"error": "Both 'question' and 'document_name' are required."},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -291,11 +296,17 @@ class AskExcelQuestionAPI(APIView):
 
             # Process the question with LangChain
             answer = self.ask_question_in_session(session_id, question)
+            logger.info(f"Answer retrieved: {answer}")
             return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
         except OpenAIError as e:
-            logger.error(f"An error occurred while processing the question: {e}")
+            logger.error(f"An OpenAI error occurred: {e}")
+            return Response({"error": "An error occurred with the OpenAI service."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            logger.error(f"An unexpected error occurred: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
     def initialize_langchain_session(self, csv_file_path):
         """Initialize a LangChain session context with CSV data using RetrievalQA."""
