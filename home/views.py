@@ -12,6 +12,7 @@ from pymongo import MongoClient
 import openai
 from openai.error import OpenAIError
 from .models import UploadedDocument
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -146,8 +147,8 @@ class UploadExcelAPI(APIView):
 
         excel_file = request.FILES['excel_file']
         
-        # Get a clean file name without extensions or unwanted characters
-        document_name = os.path.splitext(excel_file.name)[0].replace("'", "").strip()  # Remove '.xlsx' and quotes
+        # Clean the filename to remove single quotes and any trailing spaces
+        document_name = re.sub(r"[\'\"]", "", os.path.splitext(excel_file.name)[0]).strip()  # Removes single and double quotes
         csv_file_path = os.path.join(csv_dir, f"{document_name}.csv")
 
         # Check if document name already exists in the database
@@ -157,7 +158,7 @@ class UploadExcelAPI(APIView):
         try:
             # Load the Excel file into a DataFrame
             df = pd.read_excel(excel_file)
-            # Save as CSV without quotes in the filename
+            # Save as CSV with the clean filename (without quotes)
             df.to_csv(csv_file_path, index=False)
 
             # Log the file path and document details
