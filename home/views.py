@@ -17,6 +17,8 @@ from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI  # Updated import for ChatOpenAI
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 
 
 logger = logging.getLogger(__name__)
@@ -309,7 +311,7 @@ class AskExcelQuestionAPI(APIView):
             # Set up a retrieval-based question-answering chain
             retriever = vectorstore.as_retriever()
             qa_chain = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(),  # You can specify the model, e.g., gpt-3.5-turbo
+                llm=ChatOpenAI(),  # Updated ChatOpenAI import
                 chain_type="stuff",  # "stuff" is the chain type recommended for simple QA tasks
                 retriever=retriever
             )
