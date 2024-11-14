@@ -329,20 +329,20 @@ class AskExcelQuestionAPI(APIView):
 
 
     def ask_question_in_session(self, qa_chain, question):
-        """Ask a question and return only the answer string."""
+        """Ask a question within the LangChain session context using `invoke`."""
         try:
-            # Execute the question-answering chain
-            answer = qa_chain.run({"question": question})
+            # Use `invoke` and pass the question under the correct key `query`
+            answer = qa_chain.invoke({"query": question})
             
-            # Logging to confirm we only have the answer string
+            # Log the answer type and content for debugging
             logger.debug(f"Answer type: {type(answer)}, Answer content: {answer}")
 
-            # Ensure only the string answer is returned
-            return answer
+            return answer  # Only return the answer string
 
         except Exception as e:
             logger.error(f"Error processing question: {e}")
             return "Error: Unable to process the question."
+
 
 
 
