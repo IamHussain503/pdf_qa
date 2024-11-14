@@ -263,45 +263,42 @@ logger = logging.getLogger(__name__)
 class AskExcelQuestionAPI(APIView):
     """API to answer questions based on the Excel document's CSV with session persistence for context."""
 
-    class AskExcelQuestionAPI(APIView):
-        """API to answer questions based on the Excel document's CSV with session persistence for context."""
+    def post(self, request):
+        question = request.data.get('question')
+        document_name = request.data.get('document_name').replace(" ", "_")
 
-        def post(self, request):
-            question = request.data.get('question')
-            document_name = request.data.get('document_name').replace(" ", "_")
+        if not question or not document_name:
+            logger.error("Both 'question' and 'document_name' are required.")
+            return Response({"error": "Both 'question' and 'document_name' are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-            if not question or not document_name:
-                logger.error("Both 'question' and 'document_name' are required.")
-                return Response({"error": "Both 'question' and 'document_name' are required."},
-                                status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # Retrieve document details
+            document = excel_collection.find_one({"document_name": document_name})
+            if not document:
+                logger.error("Document not found in the database.")
+                return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 
-            try:
-                # Retrieve document details
-                document = excel_collection.find_one({"document_name": document_name})
-                if not document:
-                    logger.error("Document not found in the database.")
-                    return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+            csv_file_path = document.get("csv_path")
+            if not csv_file_path or not os.path.exists(csv_file_path):
+                logger.error(f"CSV file not found at path: {csv_file_path}")
+                return Response({"error": "CSV file not found. Please ensure the document is available and processed."},
+                                status=status.HTTP_404_NOT_FOUND)
 
-                csv_file_path = document.get("csv_path")
-                if not csv_file_path or not os.path.exists(csv_file_path):
-                    logger.error(f"CSV file not found at path: {csv_file_path}")
-                    return Response({"error": "CSV file not found. Please ensure the document is available and processed."},
-                                    status=status.HTTP_404_NOT_FOUND)
+            # Initialize session and process the question
+            qa_chain = self.initialize_langchain_session(csv_file_path)
+            answer = self.ask_question_in_session(qa_chain, question)
+            logger.debug(f"Returning answer: {answer}")
 
-                # Initialize session and process the question
-                qa_chain = self.initialize_langchain_session(csv_file_path)
-                answer = self.ask_question_in_session(qa_chain, question)
-                logger.debug(f"Returning answer: {answer}")
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
-                return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+        except OpenAIError as e:
+            logger.error(f"OpenAI error occurred: {e}")
+            return Response({"error": "An error occurred with the OpenAI service."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            except OpenAIError as e:
-                logger.error(f"OpenAI error occurred: {e}")
-                return Response({"error": "An error occurred with the OpenAI service."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            except Exception as e:
-                logger.error(f"Unexpected error occurred: {e}")
-                return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Unexpected error occurred: {e}")
+            return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
