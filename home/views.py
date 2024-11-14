@@ -286,6 +286,8 @@ class AskExcelQuestionAPI(APIView):
     def initialize_langchain_session(self, csv_file_path):
         """Initialize a LangChain session, save context_id to MongoDB."""
         try:
+            logger.debug(f"Initializing LangChain session for file: {csv_file_path}")
+            
             # Load the CSV and set up embeddings and vector store
             loader = CSVLoader(file_path=csv_file_path)
             documents = loader.load()
@@ -312,6 +314,7 @@ class AskExcelQuestionAPI(APIView):
                 "created_at": datetime.utcnow()
             })
 
+            logger.debug(f"LangChain session initialized with context_id: {context_id}")
             return context_id
 
         except Exception as e:
@@ -330,12 +333,15 @@ class AskExcelQuestionAPI(APIView):
         
         if session_data:
             csv_file_path = session_data["csv_file_path"]
+            logger.debug(f"Restoring session from MongoDB for context_id: {context_id}")
+            
             # Reinitialize session and store it in memory
             qa_chain = self.initialize_langchain_session(csv_file_path)
             self.context_sessions[context_id] = qa_chain  # Cache restored session in memory
             return qa_chain
 
         # Return None if session cannot be found or reinitialized
+        logger.warning(f"No session found for context_id: {context_id}")
         return None
 
     def ask_question_in_session(self, context_id, question):
@@ -368,8 +374,10 @@ class AskExcelQuestionAPI(APIView):
                 session_record = self.session_collection.find_one({"csv_file_path": document_name})
                 if session_record:
                     context_id = session_record["context_id"]
+                    logger.debug(f"Reusing existing context_id: {context_id} for document_name: {document_name}")
                 else:
                     # If no session exists, initialize a new one
+                    logger.debug(f"No existing context found. Initializing new session for document: {document_name}")
                     document = excel_collection.find_one({"document_name": document_name})
                     if not document:
                         return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
