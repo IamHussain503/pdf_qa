@@ -283,6 +283,10 @@ class AskExcelQuestionAPI(APIView):
         self.session_collection = self.db['langchain_sessions']
         self.context_sessions = {}  # In-memory cache for active sessions
 
+    def normalize_document_name(self, document_name):
+        """Normalize the document name to ensure consistency in storage and retrieval."""
+        return document_name.replace(" ", "_").lower()
+
     def initialize_langchain_session(self, csv_file_path):
         """Initialize a LangChain session, save context_id to MongoDB."""
         try:
@@ -360,7 +364,7 @@ class AskExcelQuestionAPI(APIView):
     def post(self, request):
         """Handle POST requests to answer questions based on the document's CSV with session context."""
         question = request.data.get('question')
-        document_name = request.data.get('document_name').replace(" ", "_")
+        document_name = self.normalize_document_name(request.data.get('document_name'))
         context_id = request.data.get('context_id')
 
         if not question or not document_name:
@@ -370,7 +374,7 @@ class AskExcelQuestionAPI(APIView):
         try:
             # Attempt to retrieve an existing context_id from MongoDB
             if not context_id:
-                # Retrieve the context ID associated with the document path
+                # Retrieve the context ID associated with the normalized document path
                 session_record = self.session_collection.find_one({"csv_file_path": document_name})
                 if session_record:
                     context_id = session_record["context_id"]
