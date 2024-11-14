@@ -333,6 +333,7 @@ class AskExcelQuestionAPI(APIView):
         
         # Check if session is already in memory
         if context_id in self.context_sessions:
+            logger.debug(f"Session found in memory for context_id: {context_id}")
             return self.context_sessions[context_id]
 
         # Fetch session details from MongoDB if not found in memory
@@ -358,7 +359,9 @@ class AskExcelQuestionAPI(APIView):
             return "Error: Context ID not found or session expired."
 
         try:
+            logger.debug(f"Asking question in session context: {context_id}")
             answer = qa_chain.invoke({"query": question})
+            logger.debug(f"Received answer: {answer}")
             return answer
         except Exception as e:
             logger.error(f"Error processing question in LangChain session: {e}")
