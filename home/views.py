@@ -261,31 +261,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 import uuid
-import redis
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 from langchain_community.document_loaders import CSVLoader
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.chains import RetrievalQA
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
 
 class AskExcelQuestionAPI(APIView):
-    """API to answer questions based on an Excel document's CSV with persistent session context using Redis."""
+    """API to answer questions based on an Excel document's CSV with persistent session context using MongoDB."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Redis setup for fast session access
-        self.redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
-        
-        # MongoDB setup for long-term session persistence
+        # MongoDB setup for session storage
         client = MongoClient(os.getenv("MONGODB_URL"))
         self.db = client.Todo
         self.session_collection = self.db['langchain_sessions']
+        self.context_sessions = {}  # In-memory cache for active sessions
 
     def initialize_langchain_session(self, csv_file_path):
-        """Initialize a LangChain session, save to Redis, and persist context_id to MongoDB."""
+        """Initialize a LangChain session, save context_id to MongoDB."""
         try:
+            # Load the CSV and set up embeddings and vector store
             loader = CSVLoader(file_path=csv_file_path)
             documents = loader.load()
             
@@ -293,18 +294,18 @@ class AskExcelQuestionAPI(APIView):
             vectorstore = FAISS.from_documents(documents, embeddings)
             retriever = vectorstore.as_retriever()
             
+            # Initialize QA chain
             qa_chain = RetrievalQA.from_chain_type(
                 llm=ChatOpenAI(),
                 chain_type="stuff",
                 retriever=retriever
             )
 
+            # Generate a unique context_id
             context_id = str(uuid.uuid4())
-            
-            # Store in Redis with an expiration time (e.g., 24 hours)
-            self.redis_client.setex(context_id, timedelta(hours=24), qa_chain)
+            self.context_sessions[context_id] = qa_chain  # Cache session in memory
 
-            # Persist session metadata in MongoDB for long-term recovery
+            # Persist session metadata in MongoDB
             self.session_collection.insert_one({
                 "context_id": context_id,
                 "csv_file_path": csv_file_path,
@@ -318,29 +319,27 @@ class AskExcelQuestionAPI(APIView):
             raise
 
     def retrieve_session(self, context_id):
-        """Retrieve session by context_id, first from Redis, then from MongoDB if needed."""
+        """Retrieve session by context_id from memory or MongoDB if needed."""
         
-        # Attempt to retrieve the session from Redis
-        qa_chain = self.redis_client.get(context_id)
-        
-        if qa_chain:
-            return qa_chain  # Return from Redis if found
+        # Check if session is already in memory
+        if context_id in self.context_sessions:
+            return self.context_sessions[context_id]
 
-        # If not in Redis, retrieve from MongoDB and reinitialize
+        # Fetch session details from MongoDB if not found in memory
         session_data = self.session_collection.find_one({"context_id": context_id})
         
         if session_data:
             csv_file_path = session_data["csv_file_path"]
-            # Reinitialize session, save back to Redis, and return it
+            # Reinitialize session and store it in memory
             qa_chain = self.initialize_langchain_session(csv_file_path)
-            self.redis_client.setex(context_id, timedelta(hours=24), qa_chain)  # Refresh Redis
+            self.context_sessions[context_id] = qa_chain  # Cache restored session in memory
             return qa_chain
 
-        # Return None if session could not be found or reinitialized
+        # Return None if session cannot be found or reinitialized
         return None
 
     def ask_question_in_session(self, context_id, question):
-        """Ask a question within an existing session, reloading from Redis or MongoDB if needed."""
+        """Ask a question within an existing session, loading from MongoDB if needed."""
         qa_chain = self.retrieve_session(context_id)
         if not qa_chain:
             return "Error: Context ID not found or session expired."
@@ -382,6 +381,7 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"Unexpected error: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, 
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
