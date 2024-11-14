@@ -145,25 +145,27 @@ class UploadExcelAPI(APIView):
             return Response({"error": "No Excel file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
         excel_file = request.FILES['excel_file']
-        # Use the filename without the `.xlsx` extension
-        document_name = os.path.splitext(excel_file.name)[0]  # This removes the `.xlsx` if present
+        
+        # Get the base file name without any extensions or unwanted characters
+        document_name = os.path.splitext(excel_file.name)[0].replace("'", "").strip()  # Remove '.xlsx' and quotes
+        
+        # Define the final CSV file path
+        csv_file_path = os.path.join(csv_dir, f"{document_name}.csv")
 
-        # Check if document name already exists in excel collection
+        # Check if document name already exists in the database
         if excel_collection.find_one({"document_name": document_name}):
             return Response({"error": "Document with this name already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             # Load the Excel file into a DataFrame
             df = pd.read_excel(excel_file)
-            # Construct the CSV path without `.xlsx` in the filename
-            csv_file_path = os.path.join(csv_dir, f"{document_name}.csv")
-            # Save as CSV
+            # Save as CSV without quotes in the filename
             df.to_csv(csv_file_path, index=False)
-            
-            # Insert document record into MongoDB
+
+            # Insert the document record into MongoDB
             document = {"document_name": document_name, "csv_path": csv_file_path}
             result = excel_collection.insert_one(document)
-            
+
             return Response({
                 "document_id": str(result.inserted_id),
                 "document_name": document_name,
@@ -173,6 +175,7 @@ class UploadExcelAPI(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
