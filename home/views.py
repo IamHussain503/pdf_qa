@@ -364,6 +364,7 @@ class AskExcelQuestionAPI(APIView):
         try:
             # Attempt to retrieve an existing context_id from MongoDB
             if not context_id:
+                # Retrieve the context ID associated with the document path
                 session_record = self.session_collection.find_one({"csv_file_path": document_name})
                 if session_record:
                     context_id = session_record["context_id"]
@@ -385,7 +386,6 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"Unexpected error: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, 
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 
 
