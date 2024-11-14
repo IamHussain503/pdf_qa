@@ -226,7 +226,7 @@ class AskExcelQuestionAPI(APIView):
         question = request.data.get('question')
         document_name = request.data.get('document_name')
 
-        csv_file_path = f"/tmp/{document_name}.csv"
+        csv_file_path = f"documents/{document_name}.csv"
         if not os.path.exists(csv_file_path):
             return Response({"error": "CSV file not found. Please ensure the document is available and processed."}, 
                             status=status.HTTP_404_NOT_FOUND)
