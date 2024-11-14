@@ -10,7 +10,6 @@ from rest_framework import status
 from bson import ObjectId
 from pymongo import MongoClient
 import openai
-from openai.error import OpenAIError
 from .models import UploadedDocument
 import re
 from langchain_community.document_loaders import CSVLoader
@@ -60,27 +59,32 @@ def upload_file_and_create_vector_store(pdf_file, vector_store_name: str):
         return None
 
 
+from openai import OpenAIError
+
 def ask_question_with_file_search(question: str, vector_store_id: str):
-    """Ask a question using OpenAI API with a specified vector store ID."""
+    """Ask a question using the OpenAI API and simulate a vector search."""
     try:
         modified_question = f"{question} Please do not send any relevant links in the answer as well as remove any unwanted characters from the answer."
+
+        # Create a chat completion to simulate file search
         response = openai.Completion.create(
             model="text-davinci-003",
             prompt=modified_question,
             max_tokens=150,
         )
-        event_handler = EventHandler()
-        answer = response.choices[0].text.strip()
-        event_handler.on_message_done(response)
-        return answer
+
+        return response.choices[0].text.strip()
 
     except OpenAIError as e:
-        if "404" in str(e) and "not found" in str(e):
-            pdf_collection.delete_one({"vector_store_id": vector_store_id})
-            return {"error": "The vector store ID was not found and has been removed from the database."}
+        # Handle errors here
+        error_message = str(e)
+        if "404" in error_message and "not found" in error_message:
+            print(f"Vector store with ID '{vector_store_id}' not found.")
+            # Handle specific error case
         else:
-            logger.error(f"Error during question processing: {e}")
-            raise e
+            print(f"Error during question processing: {e}")
+        raise e  # Re-raise if you want to handle it further up the stack
+
 
 
 def upload_pdf_page(request):
