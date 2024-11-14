@@ -77,6 +77,42 @@ def ask_question_with_file_search(question: str, vector_store_id: str):
             raise e
 
 
+def upload_pdf_page(request):
+    """Frontend view to upload PDF and ask questions."""
+    uploaded_files = list(pdf_collection.find({}, {'_id': 1, 'file_name': 1}))
+    for file in uploaded_files:
+        file['file_id'] = str(file['_id'])
+
+    answer = None
+    question = None
+
+    if request.method == 'POST':
+        if 'pdf_file' in request.FILES:
+            pdf_file = request.FILES['pdf_file']
+            file_name = pdf_file.name
+            vector_store = upload_file_and_create_vector_store(pdf_file, file_name)
+
+            document = {"file_name": file_name, "vector_store_id": vector_store['id']}
+            pdf_collection.insert_one(document)
+            return redirect('upload_pdf_page')
+
+        elif 'uploaded_file' in request.POST and 'question' in request.POST:
+            uploaded_file_id = request.POST['uploaded_file']
+            question = request.POST['question']
+            try:
+                uploaded_file = pdf_collection.find_one({"_id": ObjectId(uploaded_file_id)})
+                if uploaded_file:
+                    answer = ask_question_with_file_search(question, uploaded_file['vector_store_id'])
+            except Exception as e:
+                logger.error(f"Error retrieving file: {e}")
+
+    return render(request, 'upload_pdf.html', {
+        'uploaded_files': uploaded_files,
+        'answer': answer,
+        'question': question
+    })
+
+
 class UploadDocumentAPI(APIView):
     """API to upload PDF documents and create a vector store for them."""
 
