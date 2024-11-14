@@ -263,55 +263,52 @@ logger = logging.getLogger(__name__)
 class AskExcelQuestionAPI(APIView):
     """API to answer questions based on the Excel document's CSV with session persistence for context."""
 
-    def post(self, request):
-        question = request.data.get('question')
-        document_name = request.data.get('document_name').replace(" ", "_")
+    class AskExcelQuestionAPI(APIView):
+        """API to answer questions based on the Excel document's CSV with session persistence for context."""
 
-        if not question or not document_name:
-            logger.error("Both 'question' and 'document_name' are required.")
-            return Response({"error": "Both 'question' and 'document_name' are required."},
-                            status=status.HTTP_400_BAD_REQUEST)
+        def post(self, request):
+            question = request.data.get('question')
+            document_name = request.data.get('document_name').replace(" ", "_")
 
-        try:
-            # Retrieve the document from MongoDB with standardized name
-            document = excel_collection.find_one({"document_name": document_name})
-            if not document:
-                logger.error("Document not found in the database.")
-                return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+            if not question or not document_name:
+                logger.error("Both 'question' and 'document_name' are required.")
+                return Response({"error": "Both 'question' and 'document_name' are required."},
+                                status=status.HTTP_400_BAD_REQUEST)
 
-            csv_file_path = document.get("csv_path")
-            if not csv_file_path or not os.path.exists(csv_file_path):
-                logger.error(f"CSV file not found at path: {csv_file_path}")
-                return Response({"error": "CSV file not found. Please ensure the document is available and processed."},
-                                status=status.HTTP_404_NOT_FOUND)
+            try:
+                # Retrieve document details
+                document = excel_collection.find_one({"document_name": document_name})
+                if not document:
+                    logger.error("Document not found in the database.")
+                    return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 
-            # Check or initialize LangChain session
-            session_id = document.get("langchain_session_id")
-            if not session_id or not self.is_session_active(session_id):
-                session_id = self.initialize_langchain_session(csv_file_path)
-                excel_collection.update_one(
-                    {"_id": document["_id"]},
-                    {"$set": {"langchain_session_id": session_id}}
-                )
+                csv_file_path = document.get("csv_path")
+                if not csv_file_path or not os.path.exists(csv_file_path):
+                    logger.error(f"CSV file not found at path: {csv_file_path}")
+                    return Response({"error": "CSV file not found. Please ensure the document is available and processed."},
+                                    status=status.HTTP_404_NOT_FOUND)
 
-            # Process the question with LangChain
-            answer = self.ask_question_in_session(session_id, question)
-            logger.info(f"Answer retrieved: {answer}")
-            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+                # Initialize session and process the question
+                qa_chain = self.initialize_langchain_session(csv_file_path)
+                answer = self.ask_question_in_session(qa_chain, question)
+                logger.debug(f"Returning answer: {answer}")
 
-        except OpenAIError as e:
-            logger.error(f"An OpenAI error occurred: {e}")
-            return Response({"error": "An error occurred with the OpenAI service."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
 
-        except Exception as e:
-            logger.error(f"An unexpected error occurred: {e}")
-            return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            except OpenAIError as e:
+                logger.error(f"OpenAI error occurred: {e}")
+                return Response({"error": "An error occurred with the OpenAI service."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            except Exception as e:
+                logger.error(f"Unexpected error occurred: {e}")
+                return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
     def initialize_langchain_session(self, csv_file_path):
-        """Initialize a LangChain session context with CSV data using RetrievalQA."""
+        """Initialize LangChain session context for CSV data and return the QA chain."""
         try:
-            # Load CSV file and prepare documents
+            # Load the CSV file
             loader = CSVLoader(file_path=csv_file_path)
             documents = loader.load()
 
@@ -319,14 +316,15 @@ class AskExcelQuestionAPI(APIView):
             embeddings = OpenAIEmbeddings()
             vectorstore = FAISS.from_documents(documents, embeddings)
 
-            # Set up a retrieval-based question-answering chain
+            # Set up the question-answering chain with the retriever
             retriever = vectorstore.as_retriever()
             qa_chain = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(),  # Updated ChatOpenAI import
-                chain_type="stuff",  # "stuff" is the chain type recommended for simple QA tasks
+                llm=ChatOpenAI(),
+                chain_type="stuff",
                 retriever=retriever
             )
-            return qa_chain  # Return only the qa_chain, not the entire chain object in the response
+            
+            return qa_chain  # Only returning the initialized QA chain
 
         except Exception as e:
             logger.error(f"Failed to initialize LangChain session: {e}")
@@ -334,23 +332,20 @@ class AskExcelQuestionAPI(APIView):
 
 
     def ask_question_in_session(self, qa_chain, question):
-        """Ask a question within the LangChain session context."""
+        """Ask a question and return only the answer string."""
         try:
-            # Run the question-answering chain to get the answer
+            # Execute the question-answering chain
             answer = qa_chain.run({"question": question})
-            return answer  # Return only the answer as a response
+            
+            # Logging to confirm we only have the answer string
+            logger.debug(f"Answer type: {type(answer)}, Answer content: {answer}")
+
+            # Ensure only the string answer is returned
+            return answer
+
         except Exception as e:
-            logger.error(f"Error processing question in LangChain session: {e}")
+            logger.error(f"Error processing question: {e}")
             return "Error: Unable to process the question."
-
-
-    def is_session_active(self, session_id):
-        """Check if the session context is active in LangChain."""
-        try:
-            return session_id.is_active()
-        except Exception as e:
-            logger.error(f"Error checking session status in LangChain: {e}")
-            return False
 
 
 
