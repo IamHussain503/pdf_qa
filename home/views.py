@@ -169,6 +169,24 @@ class RetrieveExcelAsCSVAPI(APIView):
             "csv_file_path": csv_file_path
         }, status=status.HTTP_200_OK)
 
+class AskQuestionAPI(APIView):
+    """API to answer questions based on a PDF's vector store."""
+
+    def post(self, request):
+        question = request.data.get('question')
+        vector_store_id = request.data.get('vector_store_id')
+
+        if not question or not vector_store_id:
+            return Response({"error": "Both 'question' and 'vector_store_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            answer = ask_question_with_file_search(question, vector_store_id)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error while processing the question: {e}")
+            return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class AskExcelQuestionAPI(APIView):
     """API to answer questions based on the Excel document's CSV with session persistence for context."""
