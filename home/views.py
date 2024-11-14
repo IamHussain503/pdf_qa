@@ -146,10 +146,8 @@ class UploadExcelAPI(APIView):
 
         excel_file = request.FILES['excel_file']
         
-        # Get the base file name without any extensions or unwanted characters
+        # Get a clean file name without extensions or unwanted characters
         document_name = os.path.splitext(excel_file.name)[0].replace("'", "").strip()  # Remove '.xlsx' and quotes
-        
-        # Define the final CSV file path
         csv_file_path = os.path.join(csv_dir, f"{document_name}.csv")
 
         # Check if document name already exists in the database
@@ -161,6 +159,9 @@ class UploadExcelAPI(APIView):
             df = pd.read_excel(excel_file)
             # Save as CSV without quotes in the filename
             df.to_csv(csv_file_path, index=False)
+
+            # Log the file path and document details
+            logger.info(f"CSV saved at: {csv_file_path}")
 
             # Insert the document record into MongoDB
             document = {"document_name": document_name, "csv_path": csv_file_path}
@@ -174,7 +175,9 @@ class UploadExcelAPI(APIView):
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
+            logger.error(f"Failed to save CSV file: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
