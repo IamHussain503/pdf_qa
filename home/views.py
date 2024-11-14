@@ -260,88 +260,129 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import uuid
+import redis
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from langchain_community.document_loaders import CSVLoader
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain.chains import RetrievalQA
+
 class AskExcelQuestionAPI(APIView):
-    """API to answer questions based on the Excel document's CSV with session persistence for context."""
+    """API to answer questions based on an Excel document's CSV with persistent session context using Redis."""
 
-    def post(self, request):
-        question = request.data.get('question')
-        document_name = request.data.get('document_name').replace(" ", "_")
-
-        if not question or not document_name:
-            logger.error("Both 'question' and 'document_name' are required.")
-            return Response({"error": "Both 'question' and 'document_name' are required."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            # Retrieve document details
-            document = excel_collection.find_one({"document_name": document_name})
-            if not document:
-                logger.error("Document not found in the database.")
-                return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
-
-            csv_file_path = document.get("csv_path")
-            if not csv_file_path or not os.path.exists(csv_file_path):
-                logger.error(f"CSV file not found at path: {csv_file_path}")
-                return Response({"error": "CSV file not found. Please ensure the document is available and processed."},
-                                status=status.HTTP_404_NOT_FOUND)
-
-            # Initialize session and process the question
-            qa_chain = self.initialize_langchain_session(csv_file_path)
-            answer = self.ask_question_in_session(qa_chain, question)
-            logger.debug(f"Returning answer: {answer}")
-
-            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
-
-        except OpenAIError as e:
-            logger.error(f"OpenAI error occurred: {e}")
-            return Response({"error": "An error occurred with the OpenAI service."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        except Exception as e:
-            logger.error(f"Unexpected error occurred: {e}")
-            return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Redis setup for fast session access
+        self.redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
+        
+        # MongoDB setup for long-term session persistence
+        client = MongoClient(os.getenv("MONGODB_URL"))
+        self.db = client.Todo
+        self.session_collection = self.db['langchain_sessions']
 
     def initialize_langchain_session(self, csv_file_path):
-        """Initialize LangChain session context for CSV data and return the QA chain."""
+        """Initialize a LangChain session, save to Redis, and persist context_id to MongoDB."""
         try:
-            # Load the CSV file
             loader = CSVLoader(file_path=csv_file_path)
             documents = loader.load()
-
-            # Initialize embeddings and vector store
+            
             embeddings = OpenAIEmbeddings()
             vectorstore = FAISS.from_documents(documents, embeddings)
-
-            # Set up the question-answering chain with the retriever
             retriever = vectorstore.as_retriever()
+            
             qa_chain = RetrievalQA.from_chain_type(
                 llm=ChatOpenAI(),
                 chain_type="stuff",
                 retriever=retriever
             )
+
+            context_id = str(uuid.uuid4())
             
-            return qa_chain  # Only returning the initialized QA chain
+            # Store in Redis with an expiration time (e.g., 24 hours)
+            self.redis_client.setex(context_id, timedelta(hours=24), qa_chain)
+
+            # Persist session metadata in MongoDB for long-term recovery
+            self.session_collection.insert_one({
+                "context_id": context_id,
+                "csv_file_path": csv_file_path,
+                "created_at": datetime.utcnow()
+            })
+
+            return context_id
 
         except Exception as e:
             logger.error(f"Failed to initialize LangChain session: {e}")
             raise
 
+    def retrieve_session(self, context_id):
+        """Retrieve session by context_id, first from Redis, then from MongoDB if needed."""
+        
+        # Attempt to retrieve the session from Redis
+        qa_chain = self.redis_client.get(context_id)
+        
+        if qa_chain:
+            return qa_chain  # Return from Redis if found
 
-    def ask_question_in_session(self, qa_chain, question):
-        """Ask a question within the LangChain session context using `invoke`."""
+        # If not in Redis, retrieve from MongoDB and reinitialize
+        session_data = self.session_collection.find_one({"context_id": context_id})
+        
+        if session_data:
+            csv_file_path = session_data["csv_file_path"]
+            # Reinitialize session, save back to Redis, and return it
+            qa_chain = self.initialize_langchain_session(csv_file_path)
+            self.redis_client.setex(context_id, timedelta(hours=24), qa_chain)  # Refresh Redis
+            return qa_chain
+
+        # Return None if session could not be found or reinitialized
+        return None
+
+    def ask_question_in_session(self, context_id, question):
+        """Ask a question within an existing session, reloading from Redis or MongoDB if needed."""
+        qa_chain = self.retrieve_session(context_id)
+        if not qa_chain:
+            return "Error: Context ID not found or session expired."
+
         try:
-            # Use `invoke` and pass the question under the correct key `query`
             answer = qa_chain.invoke({"query": question})
-            
-            # Log the answer type and content for debugging
-            logger.debug(f"Answer type: {type(answer)}, Answer content: {answer}")
+            return answer
+        except Exception as e:
+            logger.error(f"Error processing question in LangChain session: {e}")
+            return "Error: Unable to process the question."
 
-            return answer  # Only return the answer string
+    def post(self, request):
+        """Handle POST requests to answer questions based on the document's CSV with session context."""
+        question = request.data.get('question')
+        document_name = request.data.get('document_name').replace(" ", "_")
+        context_id = request.data.get('context_id')
+
+        if not question or not document_name:
+            return Response({"error": "Both 'question' and 'document_name' are required."}, 
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Use existing context_id if provided
+            if context_id:
+                answer = self.ask_question_in_session(context_id, question)
+            else:
+                # Initialize a new session if no context_id is provided
+                document = excel_collection.find_one({"document_name": document_name})
+                if not document:
+                    return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+                
+                csv_file_path = document.get("csv_path")
+                context_id = self.initialize_langchain_session(csv_file_path)
+                answer = self.ask_question_in_session(context_id, question)
+
+            return Response({"question": question, "answer": answer, "context_id": context_id}, status=status.HTTP_200_OK)
 
         except Exception as e:
-            logger.error(f"Error processing question: {e}")
-            return "Error: Unable to process the question."
+            logger.error(f"Unexpected error: {e}")
+            return Response({"error": "Internal Server Error. Check logs for details."}, 
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
