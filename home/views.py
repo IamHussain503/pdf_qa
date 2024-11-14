@@ -13,6 +13,10 @@ import openai
 from openai.error import OpenAIError
 from .models import UploadedDocument
 import re
+from langchain_community.document_loaders import CSVLoader
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain.chains.question_answering import load_qa_chain
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +246,8 @@ class AskQuestionAPI(APIView):
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+
+
 class AskExcelQuestionAPI(APIView):
     """API to answer questions based on the Excel document's CSV with session persistence for context."""
 
@@ -283,20 +289,22 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"An error occurred while processing the question: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
     def initialize_langchain_session(self, csv_file_path):
         """Initialize a LangChain session context with CSV data."""
-        from langchain.document_loaders import CSVLoader
-        from langchain.vectorstores import FAISS
-        from langchain.embeddings import OpenAIEmbeddings
-        from langchain.chains.question_answering import load_qa_chain
+        try:
+            # Load CSV file without specifying csv_file_path
+            loader = CSVLoader(file_path=csv_file_path)
+            documents = loader.load()
 
-        loader = CSVLoader(csv_file_path=csv_file_path)
-        documents = loader.load()
-        embeddings = OpenAIEmbeddings()
-        vectorstore = FAISS.from_documents(documents, embeddings)
-        session_id = load_qa_chain(vectorstore)
-        return session_id
+            # Initialize embeddings and vector store as before
+            embeddings = OpenAIEmbeddings()
+            vectorstore = FAISS.from_documents(documents, embeddings)
+            session_id = load_qa_chain(vectorstore)
+            return session_id
+
+        except Exception as e:
+            logger.error(f"Failed to initialize LangChain session: {e}")
+            raise
 
     def ask_question_in_session(self, session_id, question):
         """Ask a question within the LangChain session context."""
@@ -304,7 +312,7 @@ class AskExcelQuestionAPI(APIView):
             response = session_id.run({"question": question})
             return response
         except Exception as e:
-            logger.error(f"Error processing question: {e}")
+            logger.error(f"Error processing question in LangChain session: {e}")
             return "Error: Unable to process the question."
 
     def is_session_active(self, session_id):
@@ -312,7 +320,7 @@ class AskExcelQuestionAPI(APIView):
         try:
             return session_id.is_active()
         except Exception as e:
-            logger.error(f"Error checking session status: {e}")
+            logger.error(f"Error checking session status in LangChain: {e}")
             return False
 
 
