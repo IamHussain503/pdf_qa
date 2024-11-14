@@ -138,6 +138,8 @@ class UploadDocumentAPI(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+import re
+
 class UploadExcelAPI(APIView):
     """API to upload an Excel file, store it as CSV in `documents` folder, and save in MongoDB."""
 
@@ -147,8 +149,8 @@ class UploadExcelAPI(APIView):
 
         excel_file = request.FILES['excel_file']
         
-        # Clean the filename to remove single quotes and any trailing spaces
-        document_name = re.sub(r"[\'\"]", "", os.path.splitext(excel_file.name)[0]).strip()  # Removes single and double quotes
+        # Clean the filename: remove quotes, replace spaces with underscores
+        document_name = re.sub(r"[\'\"]", "", os.path.splitext(excel_file.name)[0]).strip().replace(" ", "_")
         csv_file_path = os.path.join(csv_dir, f"{document_name}.csv")
 
         # Check if document name already exists in the database
@@ -158,7 +160,7 @@ class UploadExcelAPI(APIView):
         try:
             # Load the Excel file into a DataFrame
             df = pd.read_excel(excel_file)
-            # Save as CSV with the clean filename (without quotes)
+            # Save as CSV with the cleaned filename
             df.to_csv(csv_file_path, index=False)
 
             # Log the file path and document details
@@ -245,31 +247,42 @@ class AskExcelQuestionAPI(APIView):
 
     def post(self, request):
         question = request.data.get('question')
-        document_name = request.data.get('document_name')
+        document_name = request.data.get('document_name').replace(" ", "_")  # Standardize input to match stored format
 
         if not question or not document_name:
             return Response({"error": "Both 'question' and 'document_name' are required."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        document = excel_collection.find_one({"document_name": document_name})
-        if not document:
-            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            # Retrieve the document from MongoDB with standardized name
+            document = excel_collection.find_one({"document_name": document_name})
+            if not document:
+                logger.error("Document not found in the database.")
+                return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        csv_file_path = document.get("csv_path")
-        if not csv_file_path or not os.path.exists(csv_file_path):
-            return Response({"error": "CSV file not found. Please ensure the document is available and processed."},
-                            status=status.HTTP_404_NOT_FOUND)
+            csv_file_path = document.get("csv_path")
+            if not csv_file_path or not os.path.exists(csv_file_path):
+                logger.error(f"CSV file not found at path: {csv_file_path}")
+                return Response({"error": "CSV file not found. Please ensure the document is available and processed."},
+                                status=status.HTTP_404_NOT_FOUND)
 
-        session_id = document.get("langchain_session_id")
-        if not session_id or not self.is_session_active(session_id):
-            session_id = self.initialize_langchain_session(csv_file_path)
-            excel_collection.update_one(
-                {"_id": document["_id"]},
-                {"$set": {"langchain_session_id": session_id}}
-            )
+            # Check or initialize LangChain session
+            session_id = document.get("langchain_session_id")
+            if not session_id or not self.is_session_active(session_id):
+                session_id = self.initialize_langchain_session(csv_file_path)
+                excel_collection.update_one(
+                    {"_id": document["_id"]},
+                    {"$set": {"langchain_session_id": session_id}}
+                )
 
-        answer = self.ask_question_in_session(session_id, question)
-        return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+            # Process the question with LangChain
+            answer = self.ask_question_in_session(session_id, question)
+            return Response({"question": question, "answer": answer}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"An error occurred while processing the question: {e}")
+            return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
     def initialize_langchain_session(self, csv_file_path):
         """Initialize a LangChain session context with CSV data."""
