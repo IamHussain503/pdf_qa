@@ -14,8 +14,9 @@ from .models import UploadedDocument
 import re
 from langchain_community.document_loaders import CSVLoader
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings  # Updated import path
-from langchain.chains.question_answering import load_qa_chain
+from langchain_openai import OpenAIEmbeddings
+from langchain.chains import RetrievalQA
+from langchain.chat_models import ChatOpenAI
 
 
 logger = logging.getLogger(__name__)
@@ -295,31 +296,33 @@ class AskExcelQuestionAPI(APIView):
             return Response({"error": "Internal Server Error. Check logs for details."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def initialize_langchain_session(self, csv_file_path):
-        """Initialize a LangChain session context with CSV data."""
+        """Initialize a LangChain session context with CSV data using RetrievalQA."""
         try:
-            from langchain_community.document_loaders import CSVLoader
-            from langchain_community.vectorstores import FAISS
-            from langchain_openai import OpenAIEmbeddings
-            from langchain.chains.question_answering import load_qa_chain
-
-            # Load CSV file without specifying csv_file_path
+            # Load CSV file and prepare documents
             loader = CSVLoader(file_path=csv_file_path)
             documents = loader.load()
 
-            # Initialize embeddings and vector store as before
+            # Initialize embeddings and vector store
             embeddings = OpenAIEmbeddings()
             vectorstore = FAISS.from_documents(documents, embeddings)
-            session_id = load_qa_chain(vectorstore)
-            return session_id
+
+            # Set up a retrieval-based question-answering chain
+            retriever = vectorstore.as_retriever()
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=ChatOpenAI(),  # You can specify the model, e.g., gpt-3.5-turbo
+                chain_type="stuff",  # "stuff" is the chain type recommended for simple QA tasks
+                retriever=retriever
+            )
+            return qa_chain  # Return the chain as the session
 
         except Exception as e:
             logger.error(f"Failed to initialize LangChain session: {e}")
             raise
 
-    def ask_question_in_session(self, session_id, question):
+    def ask_question_in_session(self, qa_chain, question):
         """Ask a question within the LangChain session context."""
         try:
-            response = session_id.run({"question": question})
+            response = qa_chain.run({"question": question})
             return response
         except Exception as e:
             logger.error(f"Error processing question in LangChain session: {e}")
