@@ -153,45 +153,47 @@ class UploadDocumentAPI(APIView):
 import re
 
 class UploadExcelAPI(APIView):
-    """API to upload an Excel file, store it as CSV in `documents` folder, and save in MongoDB."""
+    """API to upload an Excel file, store as JSON in MongoDB, and prevent duplicates by document name."""
 
     def post(self, request):
         if 'excel_file' not in request.FILES:
             return Response({"error": "No Excel file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
         excel_file = request.FILES['excel_file']
-        
-        # Clean the filename: remove quotes, replace spaces with underscores
-        document_name = re.sub(r"[\'\"]", "", os.path.splitext(excel_file.name)[0]).strip().replace(" ", "_")
-        csv_file_path = os.path.join(csv_dir, f"{document_name}.csv")
+        document_name = excel_file.name.rsplit(".", 1)[0]  # Remove the file extension
+        document_name = document_name.replace(" ", "_").lower()  # Normalize the name
 
-        # Check if document name already exists in the database
+        logger.debug(f"Normalized document_name: {document_name}")
+
+        # Check if document name already exists in excel collection
         if excel_collection.find_one({"document_name": document_name}):
             return Response({"error": "Document with this name already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Load the Excel file into a DataFrame
+            # Convert Excel to CSV and save
             df = pd.read_excel(excel_file)
-            # Save as CSV with the cleaned filename
-            df.to_csv(csv_file_path, index=False)
+            csv_path = f"documents/{document_name}.csv"
+            df.to_csv(csv_path, index=False)
 
-            # Log the file path and document details
-            logger.info(f"CSV saved at: {csv_file_path}")
-
-            # Insert the document record into MongoDB
-            document = {"document_name": document_name, "csv_path": csv_file_path}
+            # Store document metadata in MongoDB
+            document = {
+                "document_name": document_name,
+                "csv_path": csv_path,
+                "upload_date": datetime.utcnow()
+            }
             result = excel_collection.insert_one(document)
 
             return Response({
                 "document_id": str(result.inserted_id),
                 "document_name": document_name,
-                "csv_path": csv_file_path,
+                "csv_path": csv_path,
                 "status": "Excel file uploaded and stored as CSV successfully"
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            logger.error(f"Failed to save CSV file: {e}")
+            logger.error(f"Error processing Excel file: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
@@ -373,21 +375,23 @@ class AskExcelQuestionAPI(APIView):
 
         try:
             # Attempt to retrieve an existing context_id from MongoDB
+            logger.debug(f"Searching for document_name: {document_name}")
+            document = excel_collection.find_one({"document_name": document_name})
+
+            if not document:
+                logger.error(f"Document with name '{document_name}' not found in MongoDB.")
+                return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+            
+            # If document exists, proceed to load or reuse context
+            csv_file_path = document.get("csv_path")
             if not context_id:
-                # Retrieve the context ID associated with the normalized document path
-                session_record = self.session_collection.find_one({"csv_file_path": document_name})
+                session_record = self.session_collection.find_one({"csv_file_path": csv_file_path})
                 if session_record:
                     context_id = session_record["context_id"]
                     logger.debug(f"Reusing existing context_id: {context_id} for document_name: {document_name}")
                 else:
-                    # If no session exists, initialize a new one
-                    logger.debug(f"No existing context found. Initializing new session for document: {document_name}")
-                    document = excel_collection.find_one({"document_name": document_name})
-                    if not document:
-                        return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
-                    
-                    csv_file_path = document.get("csv_path")
                     context_id = self.initialize_langchain_session(csv_file_path)
+                    logger.debug(f"New context_id created: {context_id}")
 
             # Use the context_id to ask the question in the existing session
             answer = self.ask_question_in_session(context_id, question)
@@ -398,7 +402,6 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"Unexpected error: {e}")
             return Response({"error": "Internal Server Error. Check logs for details."}, 
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 
 
