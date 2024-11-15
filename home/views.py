@@ -290,11 +290,11 @@ class AskExcelQuestionAPI(APIView):
         """Normalize the document name to ensure consistency in storage and retrieval."""
         return document_name.replace(" ", "_").lower()
 
-    def initialize_langchain_session(self, csv_file_path):
-        """Initialize a LangChain session, save context_id to MongoDB."""
+    def initialize_langchain_session(self, csv_file_path, context_id=None):
+        """Initialize a LangChain session and save context_id to MongoDB if necessary."""
         try:
             logger.debug(f"Initializing LangChain session for file: {csv_file_path}")
-            
+
             # Load the CSV and set up embeddings and vector store
             loader = CSVLoader(file_path=csv_file_path)
             documents = loader.load()
@@ -310,16 +310,17 @@ class AskExcelQuestionAPI(APIView):
                 retriever=retriever
             )
 
-            # Generate a unique context_id
-            context_id = str(uuid.uuid4())
+            # Use an existing context_id if provided, otherwise generate a new one
+            context_id = context_id or str(uuid.uuid4())
             self.context_sessions[context_id] = qa_chain  # Cache session in memory
 
-            # Persist session metadata in MongoDB
-            self.session_collection.insert_one({
-                "context_id": context_id,
-                "csv_file_path": csv_file_path,
-                "created_at": datetime.utcnow()
-            })
+            # Save the context_id in MongoDB if it's a new session
+            if not self.session_collection.find_one({"context_id": context_id}):
+                self.session_collection.insert_one({
+                    "context_id": context_id,
+                    "csv_file_path": csv_file_path,
+                    "created_at": datetime.utcnow()
+                })
 
             logger.debug(f"LangChain session initialized with context_id: {context_id}")
             return context_id
@@ -328,22 +329,27 @@ class AskExcelQuestionAPI(APIView):
             logger.error(f"Failed to initialize LangChain session: {e}")
             raise
 
-    def retrieve_or_initialize_session(self, csv_file_path, context_id=None):
-        """Retrieve an existing session or initialize a new one based on the csv_file_path."""
+    def retrieve_session(self, csv_file_path, context_id):
+        """Retrieve or reinitialize session if needed, ensuring a single context_id per document."""
         
-        # Attempt to retrieve session from MongoDB if not cached in memory
-        if context_id:
-            session_data = self.session_collection.find_one({"context_id": context_id})
-            if session_data:
-                csv_file_path = session_data["csv_file_path"]
-                logger.debug(f"Restoring session from MongoDB for context_id: {context_id}")
+        # Check if context_id is already in memory cache
+        if context_id in self.context_sessions:
+            logger.debug(f"Session found in memory for context_id: {context_id}")
+            return self.context_sessions[context_id]
+        
+        # Check MongoDB for an existing session
+        session_data = self.session_collection.find_one({"csv_file_path": csv_file_path})
+        
+        if session_data:
+            logger.debug(f"Reusing existing context_id: {session_data['context_id']} for csv_file_path: {csv_file_path}")
+            return self.initialize_langchain_session(csv_file_path, session_data["context_id"])
 
-        # Initialize a new session if needed
+        # If no existing session, initialize a new one and return it
         return self.initialize_langchain_session(csv_file_path)
 
     def ask_question_in_session(self, context_id, question, csv_file_path):
-        """Ask a question within an existing session, reinitializing each time from MongoDB if needed."""
-        qa_chain = self.retrieve_or_initialize_session(csv_file_path, context_id)
+        """Ask a question within an existing session, loading from MongoDB if needed."""
+        qa_chain = self.retrieve_session(csv_file_path, context_id)
         if not qa_chain:
             return "Error: Context ID not found or session expired."
 
@@ -367,7 +373,7 @@ class AskExcelQuestionAPI(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Attempt to retrieve the document metadata from MongoDB
+            # Retrieve document metadata from MongoDB
             logger.debug(f"Searching for document_name: {document_name}")
             document = self.excel_collection.find_one({"document_name": document_name})
 
@@ -375,18 +381,15 @@ class AskExcelQuestionAPI(APIView):
                 logger.error(f"Document with name '{document_name}' not found in MongoDB.")
                 return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
             
-            # If document exists, proceed to load or reuse context
             csv_file_path = document.get("csv_path")
+
+            # Ensure a single context_id is retrieved or created per document
             if not context_id:
                 session_record = self.session_collection.find_one({"csv_file_path": csv_file_path})
-                if session_record:
-                    context_id = session_record["context_id"]
-                    logger.debug(f"Reusing existing context_id: {context_id} for document_name: {document_name}")
-                else:
-                    context_id = self.initialize_langchain_session(csv_file_path)
-                    logger.debug(f"New context_id created: {context_id}")
+                context_id = session_record["context_id"] if session_record else self.initialize_langchain_session(csv_file_path)
+                logger.debug(f"Using context_id: {context_id} for document_name: {document_name}")
 
-            # Use the context_id to ask the question in the existing session
+            # Use the context_id to ask the question in the session
             answer = self.ask_question_in_session(context_id, question, csv_file_path)
 
             return Response({"question": question, "answer": answer, "context_id": context_id}, status=status.HTTP_200_OK)
